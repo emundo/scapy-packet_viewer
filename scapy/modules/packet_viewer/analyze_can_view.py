@@ -156,8 +156,7 @@ class AnalyzeCANView(DetailsView):
         # WARNING: This runs in a different thread!
         self._last_result = result_queue.get()
         self._process = None
-        self._update_views()
-        self._emit("msg_to_main_thread", "redraw")
+        self._emit("msg_to_main_thread", "call", self._update_views)
 
     def _update_views(self):
         # type: () -> None
