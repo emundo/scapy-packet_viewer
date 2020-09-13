@@ -27,7 +27,6 @@ Error = namedtuple("Error", [ "reason" ])
 
 
 class AnalyzeCANView(DetailsView):
-    # TODO: The code currently assumes that its methods are called atomically, is that safe to assume?
     # TODO: Should probably cache analysis results and ask before re-running a full analysis
     """
     Custom view exclusively for CAN packets which shows the results of the
@@ -156,7 +155,9 @@ class AnalyzeCANView(DetailsView):
         # type: (Queue) -> None
         # WARNING: This runs in a different thread!
         self._last_result = result_queue.get()
+        self._process = None
         self._update_views()
+        self._emit("msg_to_main_thread", "redraw")
 
     def _update_views(self):
         # type: () -> None
