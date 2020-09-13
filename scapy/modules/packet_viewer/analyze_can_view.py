@@ -19,6 +19,7 @@ from scapy.modules.packet_viewer.details_view import DetailsView
 
 # TODO: Correct import order? Also human-readable output if the package is
 # missing?
+import cantools
 import numpy as np
 from revdbc import analyze_identifier
 from urwid import Filler, Text
@@ -145,7 +146,7 @@ class AnalyzeCANView(DetailsView):
             size = list(sizes)[0]
             show_plots = False
 
-            with TemporaryDirectory(prefix="scapy_revdbc") as output_directory:
+            with TemporaryDirectory(prefix="scapy_revdbc_") as output_directory:
                 analysis_result = analyze_identifier(
                     identifier,
                     bodies,
@@ -154,9 +155,17 @@ class AnalyzeCANView(DetailsView):
                     show_plots
                 )
 
+            analysis_result = analysis_result._replace(
+                # cantools.database.can.Database object can not be pickled sadly
+                restored_dbc=analysis_result.restored_dbc.as_dbc_string()
+            )
+
             result_queue.put(Success(value=analysis_result))
-        except Exception as e:
+        except BaseException as e:
             result_queue.put(Error(reason=e))
+
+        result_queue.close()
+        result_queue.join_thread()
 
     def _wait_for_analysis(self, result_queue):
         # type: (Queue) -> None
@@ -188,7 +197,14 @@ class AnalyzeCANView(DetailsView):
                 self.base_widget.set_text("Analysis running...")
             else:
                 if isinstance(last_analysis_result, Success):
-                    self.base_widget.set_text("Analysis result: {}".format(last_analysis_result.value))
+                    analysis_result = last_analysis_result.value
+                    analysis_result = analysis_result._replace(
+                        restored_dbc=cantools.database.load_string(
+                            analysis_result.restored_dbc,
+                            database_format="dbc"
+                        )
+                    )
+                    self.base_widget.set_text("Analysis result: {}".format(analysis_result))
                     return
 
                 if isinstance(last_analysis_result, Error):
