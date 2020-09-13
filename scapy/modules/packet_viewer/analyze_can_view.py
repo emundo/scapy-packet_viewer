@@ -7,6 +7,7 @@
 
 from collections import namedtuple
 from multiprocessing import Process, Queue
+from queue import Empty
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -16,8 +17,10 @@ from scapy.layers.can import CAN
 from scapy.packet import Packet
 from scapy.modules.packet_viewer.details_view import DetailsView
 
+# TODO: Correct import order? Also human-readable output if the package is
+# missing?
 import numpy as np
-from revdbc import analyze_identifier # TODO: Correct import order? Also human-readable output if the package is missing?
+from revdbc import analyze_identifier
 from urwid import Filler, Text
 
 
@@ -27,12 +30,15 @@ Error = namedtuple("Error", [ "reason" ])
 
 
 class AnalyzeCANView(DetailsView):
-    # TODO: Should probably cache analysis results and ask before re-running a full analysis
+    # TODO: Should probably cache analysis results and ask before re-running a
+    # full analysis
     """
     Custom view exclusively for CAN packets which shows the results of the
     structural analysis as performed by the external package "revdbc".
     """
-    action_name = "Analyze CAN" # TODO: CAN will be lowercased, is that cool? (I think it's fine)
+
+    # TODO: CAN will be lowercased, is that cool? (I think it's fine)
+    action_name = "Analyze CAN"
 
     def __init__(self):
         # type: () -> None
@@ -40,7 +46,8 @@ class AnalyzeCANView(DetailsView):
         self._process = None # type: Optional[Process]
         self._last_result = None # type: Optional[Union[Success, Error]]
 
-        super(AnalyzeCANView, self).__init__(Filler(Text(""))) # TODO: tmp Filler/Text widget
+        # TODO: tmp Filler/Text widget
+        super(AnalyzeCANView, self).__init__(Filler(Text("")))
 
     def update_packets(self, focused_packet, all_packets):
         # type: (Packet, List[Packet]) -> None
@@ -96,8 +103,8 @@ class AnalyzeCANView(DetailsView):
         # The only somewhat bareable solution I can think of is doing the
         # following: A process is started to run the analysis, posting the
         # result of the analysis into a queue. A thread is started which
-        # blockingly waits for the process to terminate, followed by reading the
-        # result from the queue and updating the UI.
+        # blockingly waits for the process to terminate, followed by reading
+        # the result from the queue and updating the UI.
 
         result_queue = Queue()
 
@@ -154,8 +161,11 @@ class AnalyzeCANView(DetailsView):
     def _wait_for_analysis(self, result_queue):
         # type: (Queue) -> None
         # WARNING: This runs in a different thread!
-        self._last_result = result_queue.get()
-        self._process = None
+        self._process.join()
+        try:
+            self._last_result = result_queue.get(False)
+        except Empty:
+            self._last_result = None
         self._emit("msg_to_main_thread", "call", self._update_views)
 
     def _update_views(self):
@@ -167,21 +177,22 @@ class AnalyzeCANView(DetailsView):
         # - the result of the last analysis that was completed, if at least one
         #   analysis was completed
         current_data = self._current_data
-        analysis_running = self._process is not None and self._process.is_alive()
+        analysis_running = self._process is not \
+            None and self._process.is_alive()
         last_analysis_result = self._last_result
 
         if current_data is None:
-            self.original_widget.original_widget.set_text("No CAN packet selected.")
+            self.base_widget.set_text("No CAN packet selected.")
         else:
             if analysis_running:
-                self.original_widget.original_widget.set_text("Analysis running...")
+                self.base_widget.set_text("Analysis running...")
             else:
                 if isinstance(last_analysis_result, Success):
-                    self.original_widget.original_widget.set_text("Analysis result: {}".format(last_analysis_result.value))
+                    self.base_widget.set_text("Analysis result: {}".format(last_analysis_result.value))
                     return
 
                 if isinstance(last_analysis_result, Error):
-                    self.original_widget.original_widget.set_text("Analysis failed: {}".format(last_analysis_result.reason))
+                    self.base_widget.set_text("Analysis failed: {}".format(last_analysis_result.reason))
                     return
 
-                self.original_widget.original_widget.set_text("<unknown state>")
+                self.base_widget.set_text("<unknown state>")
