@@ -22,7 +22,7 @@ from scapy.modules.packet_viewer.details_view import DetailsView
 import cantools
 import numpy as np
 from revdbc import analyze_identifier
-from urwid import Filler, Text
+from urwid import Button, Columns, Filler, Frame, Padding, Text
 
 
 Data = namedtuple("Data", [ "identifier", "packets" ])
@@ -40,6 +40,7 @@ class AnalyzeCANView(DetailsView):
 
     # TODO: CAN will be lowercased, is that cool? (I think it's fine)
     action_name = "Analyze CAN"
+    rerun_analysis_label = "Rerun Analysis"
 
     def __init__(self):
         # type: () -> None
@@ -47,8 +48,16 @@ class AnalyzeCANView(DetailsView):
         self._process = None # type: Optional[Process]
         self._last_result = None # type: Optional[Union[Success, Error]]
 
-        # TODO: tmp Filler/Text widget
-        super(AnalyzeCANView, self).__init__(Filler(Text("")))
+        self._left = Filler(Padding(Text(""), align="center", width="pack"))
+        self._right = Filler(Padding(Text("_tav heatmap here_"), align="center", width="pack"))
+
+        super(AnalyzeCANView, self).__init__(Frame(Columns([
+            self._left,
+            self._right
+        ], dividechars=3), footer=Padding(Button(
+            self.rerun_analysis_label,
+            on_press=lambda _: self._rerun_analysis()
+        ), align="center", width=len(self.rerun_analysis_label)+4)))
 
     def update_packets(self, focused_packet, all_packets):
         # type: (Packet, List[Packet]) -> None
@@ -62,17 +71,24 @@ class AnalyzeCANView(DetailsView):
                 all_packets
             ))
 
-            if (self._current_data is None or
-                self._current_data.identifier != identifier_to_analyze or
-                self._current_data.packets != packets_to_analyze):
+            # Only trigger a new analysis when the identifier changes, not when
+            # the packet list changes. Triggering an analysis on a change to the
+            # packet list would trigger a new analysis on every incoming packet
+            # for that identifier, which might be annoying. Still, changes to
+            # the packet list are stored to _current_data, so that a manually
+            # restarted analysis has access to the most recent list.
+            run_analysis = \
+                self._current_data is None or \
+                self._current_data.identifier != identifier_to_analyze
 
-                data = Data(
+            if run_analysis or self._current_data.packets != packets_to_analyze:
+                self._current_data = Data(
                     identifier=identifier_to_analyze,
                     packets=packets_to_analyze
                 )
 
-                self._current_data = data
-                self._start_analysis(data)
+            if run_analysis:
+                self._start_analysis(self._current_data)
                 self._update_views()
         else:
             self._abort_analysis()
@@ -115,7 +131,11 @@ class AnalyzeCANView(DetailsView):
         ))
         self._process.start()
 
-        Thread(target=self._wait_for_analysis, args=(result_queue,)).start()
+        Thread(
+            target=self._wait_for_analysis,
+            args=(result_queue,),
+            daemon=True
+        ).start()
 
     def _abort_analysis(self):
         # type: () -> None
@@ -167,6 +187,15 @@ class AnalyzeCANView(DetailsView):
         result_queue.close()
         result_queue.join_thread()
 
+    def _rerun_analysis(self):
+        current_data = self._current_data
+        analysis_running = self._process is not \
+            None and self._process.is_alive()
+
+        if current_data is not None and not analysis_running:
+            self._start_analysis(self._current_data)
+            self._update_views()
+
     def _wait_for_analysis(self, result_queue):
         # type: (Queue) -> None
         # WARNING: This runs in a different thread!
@@ -191,10 +220,10 @@ class AnalyzeCANView(DetailsView):
         last_analysis_result = self._last_result
 
         if current_data is None:
-            self.base_widget.set_text("No CAN packet selected.")
+            self._left.base_widget.set_text("No CAN packet selected.")
         else:
             if analysis_running:
-                self.base_widget.set_text("Analysis running...")
+                self._left.base_widget.set_text("Analysis running...")
             else:
                 if isinstance(last_analysis_result, Success):
                     analysis_result = last_analysis_result.value
@@ -204,11 +233,17 @@ class AnalyzeCANView(DetailsView):
                             database_format="dbc"
                         )
                     )
-                    self.base_widget.set_text("Analysis result: {}".format(analysis_result))
-                    return
 
-                if isinstance(last_analysis_result, Error):
-                    self.base_widget.set_text("Analysis failed: {}".format(last_analysis_result.reason))
-                    return
+                    message_dbc = analysis_result \
+                        .restored_dbc \
+                        .get_message_by_frame_id(self._current_data.identifier)
 
-                self.base_widget.set_text("<unknown state>")
+                    self._left.base_widget.set_text(message_dbc.layout_string(
+                        signal_names=False
+                    ))
+
+                elif isinstance(last_analysis_result, Error):
+                    self._left.base_widget.set_text("Analysis failed: {}".format(last_analysis_result.reason))
+
+                else:
+                    self._left.base_widget.set_text("<unknown state>")
