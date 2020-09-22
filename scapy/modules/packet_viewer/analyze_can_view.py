@@ -7,6 +7,7 @@
 
 from collections import namedtuple
 from multiprocessing import Process, Queue
+import os
 from queue import Empty
 import struct
 from tempfile import TemporaryDirectory
@@ -16,13 +17,15 @@ from typing import List, Optional, Union
 from scapy.layers.can import CAN
 from scapy.packet import Packet
 from scapy.modules.packet_viewer.details_view import DetailsView
+from scapy.modules.packet_viewer.message_layout_string import \
+    message_layout_string
 
-# TODO: Correct import order? Also human-readable output if the package is
+# TODO: Correct import order? Also human-readable output any of the packages are
 # missing?
 import cantools
 import numpy as np
 from revdbc import analyze_identifier
-from urwid import Button, Columns, Filler, Frame, Padding, Text
+import urwid
 
 
 Data = namedtuple("Data", [ "identifier", "packets" ])
@@ -40,24 +43,90 @@ class AnalyzeCANView(DetailsView):
 
     # TODO: CAN will be lowercased, is that cool? (I think it's fine)
     action_name = "Analyze CAN"
-    rerun_analysis_label = "Rerun Analysis"
+
+    RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
+    SAVE_BUTTON_LABEL = "Save DBC to:"
+    DEFAULT_SAVE_PATH = "~/analyze_can/restored.dbc"
+    SIGNAL_LABEL_WIDTH = 32
 
     def __init__(self):
         # type: () -> None
+        cls = self.__class__
+
         self._current_data = None # type: Optional[Data]
         self._process = None # type: Optional[Process]
         self._last_result = None # type: Optional[Union[Success, Error]]
 
-        self._left = Filler(Padding(Text(""), align="center", width="pack"))
-        self._right = Filler(Padding(Text("_tav heatmap here_"), align="center", width="pack"))
+        self._ascii_art_text = urwid.Text("")
+        self._dbc_message_signal_value_widget = urwid.Text("_dbc_message_signal_value_widget")
+        self._heatmap_widget = urwid.Text("_heatmap_widget")
+        self._status_text = urwid.Text("No CAN packet selected.")
+        self._save_path_edit = urwid.Edit(
+            edit_text=cls.DEFAULT_SAVE_PATH,
+            wrap='clip'
+        )
 
-        super(AnalyzeCANView, self).__init__(Frame(Columns([
-            self._left,
-            self._right
-        ], dividechars=3), footer=Padding(Button(
-            self.rerun_analysis_label,
-            on_press=lambda _: self._rerun_analysis()
-        ), align="center", width=len(self.rerun_analysis_label)+4)))
+        # This pile has to be initialized with something focusable, otherwise
+        # the whole widget tree will stay unfocusable even after something
+        # focusable has been added to it.
+        self._signal_labels_pile = urwid.Pile([ ('pack', urwid.Edit()) ])
+
+        body = urwid.Columns([
+            ('weight', 1, urwid.Filler(urwid.Padding(
+                self._ascii_art_text,
+                align='center',
+                width='pack'
+            ))),
+            ('weight', 1, urwid.Filler(urwid.Padding(
+                self._signal_labels_pile,
+                align='center',
+                width=cls.SIGNAL_LABEL_WIDTH+3
+            ))),
+            ('weight', 2, urwid.Pile([
+                ('weight', 1, urwid.Filler(urwid.Padding(
+                    self._heatmap_widget,
+                    align='center',
+                    width='pack'
+                ))),
+                ('pack', urwid.Divider()),
+                ('weight', 1, urwid.Filler(urwid.Padding(
+                    self._dbc_message_signal_value_widget,
+                    align='center',
+                    width='pack'
+                )))
+            ]))
+        ], dividechars=1)
+
+        footer = urwid.Columns([
+            ('weight', 1, urwid.Pile([
+                ('pack', urwid.Columns([
+                    (len(cls.SAVE_BUTTON_LABEL)+4, urwid.Button(
+                        cls.SAVE_BUTTON_LABEL,
+                        on_press=lambda _: self._save()
+                    )),
+                    ('weight', 1, self._save_path_edit)
+                ], dividechars=1)),
+                ('pack', urwid.Padding(
+                    urwid.Button(
+                        cls.RERUN_ANALYSIS_BUTTON_LABEL,
+                        on_press=lambda _: self._rerun_analysis()
+                    ),
+                    align='left',
+                    width=len(cls.RERUN_ANALYSIS_BUTTON_LABEL)+4
+                ))
+            ])),
+            ('weight', 1, urwid.Filler(urwid.Padding(
+                self._status_text,
+                align='right',
+                width='pack'
+            ), valign='bottom'))
+        ], dividechars=1, box_columns=[1])
+
+        super(AnalyzeCANView, self).__init__(urwid.Pile([
+            ('weight', 1, body),
+            ('pack', urwid.Divider()),
+            ('pack', footer)
+        ]))
 
     def update_packets(self, focused_packet, all_packets):
         # type: (Packet, List[Packet]) -> None
@@ -188,9 +257,10 @@ class AnalyzeCANView(DetailsView):
         result_queue.join_thread()
 
     def _rerun_analysis(self):
+        # type: () -> None
         current_data = self._current_data
-        analysis_running = self._process is not \
-            None and self._process.is_alive()
+        analysis_running = self._process is not None and \
+            self._process.is_alive()
 
         if current_data is not None and not analysis_running:
             self._start_analysis(self._current_data)
@@ -201,10 +271,75 @@ class AnalyzeCANView(DetailsView):
         # WARNING: This runs in a different thread!
         self._process.join()
         try:
-            self._last_result = result_queue.get(False)
+            last_result = result_queue.get(False)
+
+            if isinstance(last_result, Success):
+                last_result = Success(value=last_result.value._replace(
+                    restored_dbc=cantools.database.load_string(
+                        last_result.value.restored_dbc,
+                        database_format='dbc'
+                    )
+                ))
+
+            self._last_result = last_result
         except Empty:
             self._last_result = None
-        self._emit("msg_to_main_thread", "call", self._update_views)
+        self._emit('msg_to_main_thread', 'call', self._update_views)
+
+    def _get_message(self):
+        # type: () -> Optional[cantools.database.can.Message]
+
+        current_data = self._current_data
+        analysis_running = self._process is not \
+            None and self._process.is_alive()
+        last_analysis_result = self._last_result
+
+        if (
+            current_data is not None and
+            not analysis_running and
+            isinstance(last_analysis_result, Success)
+        ):
+            return \
+                last_analysis_result \
+                    .value \
+                    .restored_dbc \
+                    .get_message_by_frame_id(current_data.identifier)
+        
+        return None
+
+    def _save(self):
+        # type: () -> None
+        save_path = os.path.abspath(os.path.expandvars(os.path.expanduser(
+            self._save_path_edit.get_edit_text()
+        )))
+
+        message = self._get_message()
+        if message is None:
+            self._emit('notification', "No message to be saved.")
+        else:
+            try:
+                # Create the directory path leading to the file to create
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+                # Create the file
+                with open(save_path, "x"): pass
+
+                # Save the messsage to the newly created file
+                cantools.database.dump_file(cantools.database.can.Database(
+                    messages=[ message ]
+                ), save_path, database_format='dbc')
+
+                self._emit('notification', "File written.")
+            except BaseException as e:
+                self._emit('notification', "Saving failed: {}".format(e))
+
+    def _update_signal_name(self, message, signal, widget, text):
+        # type: (cantools.database.dbc.Message, cantools.database.dbc.Signal, urwid.Edit, str) -> None
+
+        signal.name = text
+        message.refresh(strict=True)
+
+        self._update_views()
 
     def _update_views(self):
         # type: () -> None
@@ -219,31 +354,54 @@ class AnalyzeCANView(DetailsView):
             None and self._process.is_alive()
         last_analysis_result = self._last_result
 
+        # Update the status text
         if current_data is None:
-            self._left.base_widget.set_text("No CAN packet selected.")
+            self._status_text.set_text("No CAN packet selected.")
         else:
             if analysis_running:
-                self._left.base_widget.set_text("Analysis running...")
+                self._status_text.set_text("Analysis Running...")
             else:
                 if isinstance(last_analysis_result, Success):
-                    analysis_result = last_analysis_result.value
-                    analysis_result = analysis_result._replace(
-                        restored_dbc=cantools.database.load_string(
-                            analysis_result.restored_dbc,
-                            database_format="dbc"
-                        )
-                    )
-
-                    message_dbc = analysis_result \
-                        .restored_dbc \
-                        .get_message_by_frame_id(self._current_data.identifier)
-
-                    self._left.base_widget.set_text(message_dbc.layout_string(
-                        signal_names=False
-                    ))
+                    self._status_text.set_text("Analysis Done")
 
                 elif isinstance(last_analysis_result, Error):
-                    self._left.base_widget.set_text("Analysis failed: {}".format(last_analysis_result.reason))
+                    self._status_text.set_text("Analysis Failed")
 
                 else:
-                    self._left.base_widget.set_text("<unknown state>")
+                    self._status_text.set_text("<unknown state>")
+
+        # Update the DBC message widgets
+        message = self._get_message()
+        if message is None:
+            self._ascii_art_text.set_text("")
+            self._signal_labels_pile.contents = []
+        else:
+            ascii_art, signal_letter_mapping = message_layout_string(message)
+
+            self._ascii_art_text.set_text(ascii_art)
+
+            # TODO: Don't clear and re-create everything if the message has not changed.
+            self._signal_labels_pile.contents = []
+
+            for signal, letter in sorted(
+                signal_letter_mapping.items(),
+                key=lambda x: x[1]
+            ):
+                signal_label_edit = urwid.Edit(
+                    caption="{}: ".format(letter),
+                    edit_text=signal.name,
+                    wrap='clip'
+                )
+
+                # TODO: Do those leak?
+                urwid.connect_signal(
+                    signal_label_edit,
+                    "change",
+                    self._update_signal_name,
+                    weak_args=(message, signal)
+                )
+
+                self._signal_labels_pile.contents.append((
+                    signal_label_edit,
+                    self._signal_labels_pile.options('pack', None)
+                ))
