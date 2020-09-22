@@ -12,7 +12,7 @@ from queue import Empty
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from scapy.layers.can import CAN
 from scapy.packet import Packet
@@ -23,6 +23,7 @@ from scapy.modules.packet_viewer.message_layout_string import \
 # TODO: Correct import order? Also human-readable output any of the packages are
 # missing?
 import cantools
+from cantools.database.can import Database, Message, Signal
 import numpy as np
 from revdbc import analyze_identifier
 import urwid
@@ -34,14 +35,13 @@ Error = namedtuple("Error", [ "reason" ])
 
 
 class AnalyzeCANView(DetailsView):
-    # TODO: Should probably cache analysis results and ask before re-running a
-    # full analysis
+    # TODO: Should probably cache analysis results
     """
     Custom view exclusively for CAN packets which shows the results of the
-    structural analysis as performed by the external package "revdbc".
+    structural analysis as performed by the external package "revdbc" and allows
+    editing and saving the restored DBC message structures.
     """
 
-    # TODO: CAN will be lowercased, is that cool? (I think it's fine)
     action_name = "Analyze CAN"
 
     RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
@@ -70,6 +70,7 @@ class AnalyzeCANView(DetailsView):
         # the whole widget tree will stay unfocusable even after something
         # focusable has been added to it.
         self._signal_labels_pile = urwid.Pile([ ('pack', urwid.Edit()) ])
+        self._signal_labels_pile_state = None # type: Optional[message]
 
         body = urwid.Columns([
             ('weight', 1, urwid.Filler(urwid.Padding(
@@ -245,7 +246,7 @@ class AnalyzeCANView(DetailsView):
                 )
 
             analysis_result = analysis_result._replace(
-                # cantools.database.can.Database object can not be pickled sadly
+                # Database objects can not be pickled sadly
                 restored_dbc=analysis_result.restored_dbc.as_dbc_string()
             )
 
@@ -258,11 +259,7 @@ class AnalyzeCANView(DetailsView):
 
     def _rerun_analysis(self):
         # type: () -> None
-        current_data = self._current_data
-        analysis_running = self._process is not None and \
-            self._process.is_alive()
-
-        if current_data is not None and not analysis_running:
+        if self._current_data is not None and not self._analysis_running:
             self._start_analysis(self._current_data)
             self._update_views()
 
@@ -286,24 +283,23 @@ class AnalyzeCANView(DetailsView):
             self._last_result = None
         self._emit('msg_to_main_thread', 'call', self._update_views)
 
+    @property
+    def _analysis_running(self):
+        # type: () -> bool
+        return self._process is not None and self._process.is_alive()
+
     def _get_message(self):
-        # type: () -> Optional[cantools.database.can.Message]
-
-        current_data = self._current_data
-        analysis_running = self._process is not \
-            None and self._process.is_alive()
-        last_analysis_result = self._last_result
-
+        # type: () -> Optional[Message]
         if (
-            current_data is not None and
-            not analysis_running and
-            isinstance(last_analysis_result, Success)
+            self._current_data is not None and
+            not self._analysis_running and
+            isinstance(self._last_result, Success)
         ):
             return \
-                last_analysis_result \
+                self._last_result \
                     .value \
                     .restored_dbc \
-                    .get_message_by_frame_id(current_data.identifier)
+                    .get_message_by_frame_id(self._current_data.identifier)
         
         return None
 
@@ -325,7 +321,7 @@ class AnalyzeCANView(DetailsView):
                 with open(save_path, "x"): pass
 
                 # Save the messsage to the newly created file
-                cantools.database.dump_file(cantools.database.can.Database(
+                cantools.database.dump_file(Database(
                     messages=[ message ]
                 ), save_path, database_format='dbc')
 
@@ -334,8 +330,9 @@ class AnalyzeCANView(DetailsView):
                 self._emit('notification', "Saving failed: {}".format(e))
 
     def _update_signal_name(self, message, signal, widget, text):
-        # type: (cantools.database.dbc.Message, cantools.database.dbc.Signal, urwid.Edit, str) -> None
+        # type: (Message, Signal, urwid.Edit, str) -> None
 
+        # TODO: Verify the new name (might need the postchange event for that)
         signal.name = text
         message.refresh(strict=True)
 
@@ -349,23 +346,20 @@ class AnalyzeCANView(DetailsView):
         # - whether the analysis is currently running or not
         # - the result of the last analysis that was completed, if at least one
         #   analysis was completed
-        current_data = self._current_data
-        analysis_running = self._process is not \
-            None and self._process.is_alive()
-        last_analysis_result = self._last_result
-
+        
         # Update the status text
-        if current_data is None:
+        if self._current_data is None:
             self._status_text.set_text("No CAN packet selected.")
         else:
-            if analysis_running:
+            if self._analysis_running:
                 self._status_text.set_text("Analysis Running...")
             else:
-                if isinstance(last_analysis_result, Success):
+                if isinstance(self._last_result, Success):
                     self._status_text.set_text("Analysis Done")
 
-                elif isinstance(last_analysis_result, Error):
+                elif isinstance(self._last_result, Error):
                     self._status_text.set_text("Analysis Failed")
+                    # TODO: Additional information about the failure
 
                 else:
                     self._status_text.set_text("<unknown state>")
@@ -380,28 +374,39 @@ class AnalyzeCANView(DetailsView):
 
             self._ascii_art_text.set_text(ascii_art)
 
-            # TODO: Don't clear and re-create everything if the message has not changed.
-            self._signal_labels_pile.contents = []
+            if self._signal_labels_pile_state is not message:
+                self._signal_labels_pile_state = message
 
-            for signal, letter in sorted(
-                signal_letter_mapping.items(),
-                key=lambda x: x[1]
-            ):
-                signal_label_edit = urwid.Edit(
-                    caption="{}: ".format(letter),
-                    edit_text=signal.name,
-                    wrap='clip'
-                )
+                for signal_label_edit in map(
+                    lambda x: x[0],
+                    self._signal_labels_pile.contents
+                ):
+                    urwid.disconnect_signal(
+                        signal_label_edit,
+                        'change',
+                        self._update_signal_name
+                    )
 
-                # TODO: Do those leak?
-                urwid.connect_signal(
-                    signal_label_edit,
-                    "change",
-                    self._update_signal_name,
-                    weak_args=(message, signal)
-                )
+                self._signal_labels_pile.contents = []
 
-                self._signal_labels_pile.contents.append((
-                    signal_label_edit,
-                    self._signal_labels_pile.options('pack', None)
-                ))
+                for signal, letter in sorted(
+                    signal_letter_mapping.items(),
+                    key=lambda x: x[1]
+                ):
+                    signal_label_edit = urwid.Edit(
+                        caption="{}: ".format(letter),
+                        edit_text=signal.name,
+                        wrap='clip'
+                    )
+
+                    urwid.connect_signal(
+                        signal_label_edit,
+                        'change',
+                        self._update_signal_name,
+                        weak_args=(message, signal)
+                    )
+
+                    self._signal_labels_pile.contents.append((
+                        signal_label_edit,
+                        self._signal_labels_pile.options('pack', None)
+                    ))
