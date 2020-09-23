@@ -5,6 +5,7 @@
 # Copyright (C) Tim Henkes <tim.henkes@e-mundo.de>
 # This program is published under a GPLv2 license
 
+import binascii
 from collections import namedtuple
 from multiprocessing import Process, Queue
 import os
@@ -29,7 +30,7 @@ from revdbc import analyze_identifier
 import urwid
 
 
-Data = namedtuple("Data", [ "identifier", "packets" ])
+Data = namedtuple("Data", [ "focused_packet", "packets" ])
 Success = namedtuple("Success", [ "value" ])
 Error = namedtuple("Error", [ "reason" ])
 
@@ -58,7 +59,7 @@ class AnalyzeCANView(DetailsView):
         self._last_result = None # type: Optional[Union[Success, Error]]
 
         self._ascii_art_text = urwid.Text("")
-        self._dbc_message_signal_value_widget = urwid.Text("_dbc_message_signal_value_widget")
+        self._dbc_message_signal_value_widget = urwid.Text("")
         self._heatmap_widget = urwid.Text("_heatmap_widget")
         self._status_text = urwid.Text("No CAN packet selected.")
         self._save_path_edit = urwid.Edit(
@@ -132,11 +133,10 @@ class AnalyzeCANView(DetailsView):
     def update_packets(self, focused_packet, all_packets):
         # type: (Packet, List[Packet]) -> None
         if isinstance(focused_packet, CAN):
-            identifier_to_analyze = focused_packet.identifier
             packets_to_analyze = list(filter(
                 lambda p: (
                     isinstance(p, CAN) and
-                    p.identifier == identifier_to_analyze
+                    p.identifier == focused_packet.identifier
                 ),
                 all_packets
             ))
@@ -149,13 +149,13 @@ class AnalyzeCANView(DetailsView):
             # restarted analysis has access to the most recent list.
             run_analysis = \
                 self._current_data is None or \
-                self._current_data.identifier != identifier_to_analyze
+                self._current_data.focused_packet.identifier != \
+                    focused_packet.identifier
 
-            if run_analysis or self._current_data.packets != packets_to_analyze:
-                self._current_data = Data(
-                    identifier=identifier_to_analyze,
-                    packets=packets_to_analyze
-                )
+            self._current_data = Data(
+                focused_packet=focused_packet,
+                packets=packets_to_analyze
+            )
 
             if run_analysis:
                 self._start_analysis(self._current_data)
@@ -218,7 +218,7 @@ class AnalyzeCANView(DetailsView):
         # type: (Data, Queue) -> None
         # WARNING: This runs in a different process!
         try:
-            identifier = data.identifier
+            identifier = data.focused_packet.identifier
 
             bodies = np.array([
                 struct.unpack("<Q", p.data.ljust(8, b"\x00"))[0]
@@ -295,11 +295,13 @@ class AnalyzeCANView(DetailsView):
             not self._analysis_running and
             isinstance(self._last_result, Success)
         ):
+            identifier = self._current_data.focused_packet.identifier
+
             return \
                 self._last_result \
                     .value \
                     .restored_dbc \
-                    .get_message_by_frame_id(self._current_data.identifier)
+                    .get_message_by_frame_id(identifier)
         
         return None
 
@@ -338,6 +340,38 @@ class AnalyzeCANView(DetailsView):
 
         self._update_views()
 
+    def _build_signal_value_widget_string(self, message, packet):
+        # type: (Message, Packet) -> str
+        signal_values_decoded = message.decode(
+            self._current_data.focused_packet.data
+        )
+
+        longest_signal_name_length = max(
+            len(str(signal_name))
+            for signal_name in signal_values_decoded.keys()
+        )
+
+        longest_signal_value_length = max(
+            len(str(signal_value))
+            for signal_value in signal_values_decoded.values()
+        )
+
+        decoded_signal_values_string = \
+            "\n".join("{}    {}".format(
+                str(signal_name).ljust(longest_signal_name_length, " "),
+                str(signal_value).rjust(longest_signal_value_length, " ")
+            ) for signal_name, signal_value in sorted(
+                signal_values_decoded.items(),
+                key=lambda x: x[0]
+            ))
+
+        return "Decoded Signal Values for Packet 0x{}\n\n{}".format(
+            binascii
+                .hexlify(self._current_data.focused_packet.data)
+                .decode("ASCII"),
+            decoded_signal_values_string
+        )
+
     def _update_views(self):
         # type: () -> None
 
@@ -368,11 +402,19 @@ class AnalyzeCANView(DetailsView):
         message = self._get_message()
         if message is None:
             self._ascii_art_text.set_text("")
+            self._dbc_message_signal_value_widget.set_text("")
             self._signal_labels_pile.contents = []
         else:
             ascii_art, signal_letter_mapping = message_layout_string(message)
 
             self._ascii_art_text.set_text(ascii_art)
+
+            self._dbc_message_signal_value_widget.set_text(
+                self._build_signal_value_widget_string(
+                    message,
+                    self._current_data.focused_packet
+                )
+            )
 
             if self._signal_labels_pile_state is not message:
                 self._signal_labels_pile_state = message
