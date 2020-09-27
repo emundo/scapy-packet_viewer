@@ -15,20 +15,19 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import List, Optional, Tuple, Union
 
-from scapy.layers.can import CAN
-from scapy.packet import Packet
-from scapy.modules.packet_viewer.details_view import DetailsView
-from scapy.modules.packet_viewer.message_layout_string import \
-    message_layout_string
-
-# TODO: Correct import order? Also human-readable output any of the packages are
-# missing?
 import cantools
 from cantools.database.can import Database, Message, Signal
 import numpy as np
 from revdbc import analyze_identifier
 import urwid
 
+from scapy.layers.can import CAN
+from scapy.packet import Packet
+from scapy.modules.packet_viewer.details_view import DetailsView
+from scapy.modules.packet_viewer.custom_views.message_information import \
+    MessageDetailsData
+from scapy.modules.packet_viewer.custom_views.message_layout_string import \
+    message_layout_string
 
 Data = namedtuple("Data", [ "focused_packet", "packets" ])
 Success = namedtuple("Success", [ "value" ])
@@ -48,7 +47,26 @@ class AnalyzeCANView(DetailsView):
     RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
     SAVE_BUTTON_LABEL = "Save DBC to:"
     DEFAULT_SAVE_PATH = "~/analyze_can/restored.dbc"
-    SIGNAL_LABEL_WIDTH = 32
+
+    LETTER_COL_LABEL = "Letter"
+    LABEL_COL_LABEL = "Label"
+    UNIT_COL_LABEL = "Unit"
+    DECODED_COL_LABEL = "Decoded Value"
+
+    LETTER_COL_WIDTH = max(len(LETTER_COL_LABEL), 1)
+    LABEL_COL_WIDTH = max(len(LABEL_COL_LABEL), 30)
+    UNIT_COL_WIDTH = max(len(UNIT_COL_LABEL), 5)
+    DECODED_COL_WIDTH = max(len(DECODED_COL_LABEL), 10)
+
+    COL_WIDTHS = (
+        LETTER_COL_WIDTH,
+        LABEL_COL_WIDTH,
+        UNIT_COL_WIDTH,
+        DECODED_COL_WIDTH
+    )
+
+    COL_DISTANCE = 4
+    TABLE_WIDTH = (len(COL_WIDTHS) - 1) * COL_DISTANCE + sum(COL_WIDTHS)
 
     def __init__(self):
         # type: () -> None
@@ -59,76 +77,65 @@ class AnalyzeCANView(DetailsView):
         self._last_result = None # type: Optional[Union[Success, Error]]
 
         self._ascii_art_text = urwid.Text("")
-        self._dbc_message_signal_value_widget = urwid.Text("")
-        self._heatmap_widget = urwid.Text("_heatmap_widget")
         self._status_text = urwid.Text("No CAN packet selected.")
         self._save_path_edit = urwid.Edit(
             edit_text=cls.DEFAULT_SAVE_PATH,
             wrap='clip'
         )
 
-        # This pile has to be initialized with something focusable, otherwise
-        # the whole widget tree will stay unfocusable even after something
-        # focusable has been added to it.
-        self._signal_labels_pile = urwid.Pile([ ('pack', urwid.Edit()) ])
-        self._signal_labels_pile_state = None # type: Optional[message]
+        self._graph = urwid.WidgetPlaceholder(urwid.SolidFill())
 
-        body = urwid.Columns([
-            ('weight', 1, urwid.Filler(urwid.Padding(
-                self._ascii_art_text,
-                align='center',
-                width='pack'
-            ))),
-            ('weight', 1, urwid.Filler(urwid.Padding(
-                self._signal_labels_pile,
-                align='center',
-                width=cls.SIGNAL_LABEL_WIDTH+3
-            ))),
+        self._signal_table_walker = urwid.SimpleFocusListWalker([])
+        self._signal_table_walker_state = None # type: Optional[message]
+        self._signal_table = urwid.ListBox(self._signal_table_walker)
+
+        super(AnalyzeCANView, self).__init__(urwid.Columns([
             ('weight', 2, urwid.Pile([
+                ('pack', self._status_text),
+                ('pack', urwid.Divider()),
                 ('weight', 1, urwid.Filler(urwid.Padding(
-                    self._heatmap_widget,
+                    self._ascii_art_text,
                     align='center',
                     width='pack'
                 ))),
                 ('pack', urwid.Divider()),
-                ('weight', 1, urwid.Filler(urwid.Padding(
-                    self._dbc_message_signal_value_widget,
-                    align='center',
-                    width='pack'
-                )))
-            ]))
-        ], dividechars=1)
-
-        footer = urwid.Columns([
-            ('weight', 1, urwid.Pile([
-                ('pack', urwid.Columns([
-                    (len(cls.SAVE_BUTTON_LABEL)+4, urwid.Button(
-                        cls.SAVE_BUTTON_LABEL,
-                        on_press=lambda _: self._save()
-                    )),
-                    ('weight', 1, self._save_path_edit)
-                ], dividechars=1)),
-                ('pack', urwid.Padding(
-                    urwid.Button(
-                        cls.RERUN_ANALYSIS_BUTTON_LABEL,
-                        on_press=lambda _: self._rerun_analysis()
-                    ),
-                    align='left',
-                    width=len(cls.RERUN_ANALYSIS_BUTTON_LABEL)+4
-                ))
+                ('pack', urwid.Pile([
+                    ('pack', urwid.Columns([
+                        (len(cls.SAVE_BUTTON_LABEL)+4, urwid.Button(
+                            cls.SAVE_BUTTON_LABEL,
+                            on_press=lambda _: self._save()
+                        )),
+                        ('weight', 1, self._save_path_edit)
+                    ], dividechars=1)),
+                    ('pack', urwid.Padding(
+                        urwid.Button(
+                            cls.RERUN_ANALYSIS_BUTTON_LABEL,
+                            on_press=lambda _: self._rerun_analysis()
+                        ),
+                        align='left',
+                        width=len(cls.RERUN_ANALYSIS_BUTTON_LABEL)+4
+                    ))
+                ]))
             ])),
-            ('weight', 1, urwid.Filler(urwid.Padding(
-                self._status_text,
-                align='right',
-                width='pack'
-            ), valign='bottom'))
-        ], dividechars=1, box_columns=[1])
-
-        super(AnalyzeCANView, self).__init__(urwid.Pile([
-            ('weight', 1, body),
-            ('pack', urwid.Divider()),
-            ('pack', footer)
-        ]))
+            ('weight', 3, urwid.Filler(
+                urwid.Padding(
+                    urwid.Pile([
+                        ('weight', 1, urwid.Padding(
+                            self._signal_table,
+                            align='left',
+                            width=cls.TABLE_WIDTH
+                        )),
+                        ('pack', urwid.Divider()),
+                        ('weight', 1, self._graph)
+                    ]),
+                    align='center',
+                    right=1
+                ),
+                height=('relative', 100),
+                top=1,
+                bottom=1
+            ))
+        ], dividechars=1, min_width=40))
 
     def update_packets(self, focused_packet, all_packets):
         # type: (Packet, List[Packet]) -> None
@@ -288,22 +295,30 @@ class AnalyzeCANView(DetailsView):
         # type: () -> bool
         return self._process is not None and self._process.is_alive()
 
-    def _get_message(self):
-        # type: () -> Optional[Message]
+    def _get_success_result(self):
+        # type: () -> Optional[Success]
         if (
             self._current_data is not None and
             not self._analysis_running and
             isinstance(self._last_result, Success)
         ):
-            identifier = self._current_data.focused_packet.identifier
-
-            return \
-                self._last_result \
-                    .value \
-                    .restored_dbc \
-                    .get_message_by_frame_id(identifier)
+            return self._last_result
         
         return None
+
+    def _get_message(self):
+        # type: () -> Optional[Message]
+        success_result = self._get_success_result()
+
+        if self._current_data is None or success_result is None:
+            return None
+
+        identifier = self._current_data.focused_packet.identifier
+
+        return success_result \
+            .value \
+            .restored_dbc \
+            .get_message_by_frame_id(identifier)
 
     def _save(self):
         # type: () -> None
@@ -324,7 +339,7 @@ class AnalyzeCANView(DetailsView):
 
                 # Save the messsage to the newly created file
                 cantools.database.dump_file(Database(
-                    messages=[ message ]
+                    messages=[message]
                 ), save_path, database_format='dbc')
 
                 self._emit('notification', "File written.")
@@ -337,43 +352,19 @@ class AnalyzeCANView(DetailsView):
         # TODO: Verify the new name (might need the postchange event for that)
         signal.name = text
         message.refresh(strict=True)
-
         self._update_views()
 
-    def _build_signal_value_widget_string(self, message, packet):
-        # type: (Message, Packet) -> str
-        signal_values_decoded = message.decode(
-            self._current_data.focused_packet.data
-        )
+    def _update_signal_unit(self, message, signal, widget, text):
+        # type: (Message, Signal, urwid.Edit, str) -> None
 
-        longest_signal_name_length = max(
-            len(str(signal_name))
-            for signal_name in signal_values_decoded.keys()
-        )
-
-        longest_signal_value_length = max(
-            len(str(signal_value))
-            for signal_value in signal_values_decoded.values()
-        )
-
-        decoded_signal_values_string = \
-            "\n".join("{}    {}".format(
-                str(signal_name).ljust(longest_signal_name_length, " "),
-                str(signal_value).rjust(longest_signal_value_length, " ")
-            ) for signal_name, signal_value in sorted(
-                signal_values_decoded.items(),
-                key=lambda x: x[0]
-            ))
-
-        return "Decoded Signal Values for Packet 0x{}\n\n{}".format(
-            binascii
-                .hexlify(self._current_data.focused_packet.data)
-                .decode("ASCII"),
-            decoded_signal_values_string
-        )
+        # TODO: Verify the new unit (might need the postchange event for that)
+        signal.unit = None if text == "" else text
+        message.refresh(strict=True)
+        self._update_views()
 
     def _update_views(self):
         # type: () -> None
+        cls = self.__class__
 
         # There are three pieces of state this plugin holds:
         # - the current data for analysis
@@ -394,49 +385,68 @@ class AnalyzeCANView(DetailsView):
                 elif isinstance(self._last_result, Error):
                     self._status_text.set_text("Analysis Failed")
                     # TODO: Additional information about the failure
+                    # (via popup probably)
 
                 else:
                     self._status_text.set_text("<unknown state>")
+
+        # Update the packet statistic widgets
+        success_result = self._get_success_result()
+        if self._current_data is None or success_result is None:
+            self._graph.original_widget = urwid.SolidFill()
+        else:
+            # TODO: Use the data transferred via success_result
+            message_details = MessageDetailsData([ bytearray(packet.data) for packet in self._current_data.packets ])
+            message_details.set_detailed_message_information()
+            message_details.create_graph()
+            message_details.create_bit_correlation()
+
+            self._graph.original_widget = message_details.graph
 
         # Update the DBC message widgets
         message = self._get_message()
         if message is None:
             self._ascii_art_text.set_text("")
-            self._dbc_message_signal_value_widget.set_text("")
-            self._signal_labels_pile.contents = []
+            del self._signal_table_walker[:]
         else:
-            ascii_art, signal_letter_mapping = message_layout_string(message)
+            focused_row = self._signal_table.focus # type: Optional[urwid.Columns]
+            focused_signal_letter = None if focused_row is None else \
+                focused_row.contents[0][0].get_text()[0] # type: Optional[str]
+
+            ascii_art, signal_letter_mapping = message_layout_string(
+                message,
+                highlight=focused_signal_letter
+            )
 
             self._ascii_art_text.set_text(ascii_art)
 
-            self._dbc_message_signal_value_widget.set_text(
-                self._build_signal_value_widget_string(
-                    message,
-                    self._current_data.focused_packet
+            if self._signal_table_walker_state is not message:
+                self._signal_table_walker_state = message
+
+                # Disconnect the 'modified' signal before updating the signal
+                # table walker.
+                urwid.disconnect_signal(
+                    self._signal_table_walker,
+                    'modified',
+                    self._update_views
                 )
-            )
 
-            if self._signal_labels_pile_state is not message:
-                self._signal_labels_pile_state = message
+                del self._signal_table_walker[:]
 
-                for signal_label_edit in map(
-                    lambda x: x[0],
-                    self._signal_labels_pile.contents
-                ):
-                    urwid.disconnect_signal(
-                        signal_label_edit,
-                        'change',
-                        self._update_signal_name
-                    )
-
-                self._signal_labels_pile.contents = []
+                # The table header
+                self._signal_table_walker.append(urwid.Columns([
+                    (cls.LETTER_COL_WIDTH, urwid.Text(cls.LETTER_COL_LABEL)),
+                    (cls.LABEL_COL_WIDTH, urwid.Text(cls.LABEL_COL_LABEL)),
+                    (cls.UNIT_COL_WIDTH, urwid.Text(cls.UNIT_COL_LABEL)),
+                    (cls.DECODED_COL_WIDTH, urwid.Text(cls.DECODED_COL_LABEL))
+                ], dividechars=cls.COL_DISTANCE))
 
                 for signal, letter in sorted(
                     signal_letter_mapping.items(),
                     key=lambda x: x[1]
                 ):
+                    # The label
                     signal_label_edit = urwid.Edit(
-                        caption="{}: ".format(letter),
                         edit_text=signal.name,
                         wrap='clip'
                     )
@@ -448,7 +458,50 @@ class AnalyzeCANView(DetailsView):
                         weak_args=(message, signal)
                     )
 
-                    self._signal_labels_pile.contents.append((
-                        signal_label_edit,
-                        self._signal_labels_pile.options('pack', None)
-                    ))
+                    # The unit
+                    signal_unit_edit = urwid.Edit(
+                        edit_text=(signal.unit or ""),
+                        wrap='clip'
+                    )
+
+                    urwid.connect_signal(
+                        signal_unit_edit,
+                        'change',
+                        self._update_signal_unit,
+                        weak_args=(message, signal)
+                    )
+
+                    # Table rows
+                    self._signal_table_walker.append(urwid.Columns([
+                        (cls.LETTER_COL_WIDTH, urwid.Text(letter)),
+                        (cls.LABEL_COL_WIDTH, signal_label_edit),
+                        (cls.UNIT_COL_WIDTH, signal_unit_edit),
+                        (cls.DECODED_COL_WIDTH, urwid.Text(""))
+                    ], dividechars=cls.COL_DISTANCE))
+
+                # When the focus of the signal table changes, update the UI to
+                # highlight the focused signal in the ASCII art.
+                urwid.connect_signal(
+                    self._signal_table_walker,
+                    'modified',
+                    self._update_views
+                )
+
+            # Decode the current packet and update the signal decoded column
+            # accordingly
+            signal_values_decoded = message.decode(
+                self._current_data.focused_packet.data
+            )
+
+            for index, signal in enumerate(map(lambda x: x[0], sorted(
+                signal_letter_mapping.items(),
+                key=lambda x: x[1]
+            ))):
+                index += 1 # To account for the header row
+
+                row = self._signal_table_walker[index] # type: urwid.Columns
+                decoded_text = row.contents[3][0] # type: urwid.Text
+                decoded_text.set_text("{} {}".format(
+                    signal_values_decoded[signal.name],
+                    signal.unit or ""
+                ))

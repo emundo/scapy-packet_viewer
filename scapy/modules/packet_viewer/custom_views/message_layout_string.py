@@ -4,8 +4,8 @@ from cantools.database.can.message import Message
 from cantools.database.can.signal import Signal
 from cantools.database.utils import start_bit
 
-def message_layout_string(message):
-    # type: (Message) -> Tuple[str, Dict[Signal, str]]
+def message_layout_string(message, highlight=None):
+    # type: (Message, Optional[str]) -> Tuple[str, Dict[Signal, str]]
     """
     This is a copy of the cantools.database.can.message.Message.layout_string
     method, adjusted to the needs of the AnalyzeCANView.
@@ -23,6 +23,7 @@ def message_layout_string(message):
 
     Args:
         message: The message to format.
+        highlight: The letter of the signal to highlight, or None.
 
     Returns:
         The message formatted as ASCII-art, and the mapping between the signals
@@ -50,11 +51,14 @@ def message_layout_string(message):
                 continue
 
             # Small modification here to use the signal letter for the tail
-            # instead of 'x'
+            # instead of 'x' and use '=' instead of '-' for highlighted signals.
+            signal_letter = signal_letter_mapping[signal]
+            dash = '=' if signal_letter == highlight else '-'
+
             formatted = start_bit(signal) * '   '
             formatted += '<{}{}'.format(
-                (3 * signal.length - 2) * '-',
-                signal_letter_mapping[signal]
+                (3 * signal.length - 2) * dash,
+                signal_letter
             )
             signals.append(formatted)
 
@@ -68,11 +72,14 @@ def message_layout_string(message):
                 continue
 
             # Small modification here to use the signal letter for the tail
-            # instead of 'x'
+            # instead of 'x' and use '=' instead of '-' for highlighted signals.
+            signal_letter = signal_letter_mapping[signal]
+            dash = '=' if signal_letter == highlight else '-'
+
             formatted = signal.start * '   '
             formatted += '{}{}<'.format(
-                signal_letter_mapping[signal],
-                (3 * signal.length - 2) * '-'
+                signal_letter,
+                (3 * signal.length - 2) * dash
             )
             end = signal.start + signal.length
 
@@ -106,7 +113,7 @@ def message_layout_string(message):
 
         for chars in zip(*signals):
             head = chars.count('<')
-            dash = chars.count('-')
+            dash = chars.count('-') + chars.count('=')
 
             # Modified to detect signal letters as tails instead of 'x'
             tail = sum(chars.count(letter) for letter in all_signal_letters)
@@ -155,8 +162,12 @@ def message_layout_string(message):
                         line += 'X'
                     elif prev_byte == '-':
                         line += '-'
+                    elif prev_byte == '=':
+                        line += '='
                     else:
                         line += '|'
+                elif byte_triple[0] == '=':
+                    line += '='
                 else:
                     line += '-'
 
@@ -177,13 +188,12 @@ def message_layout_string(message):
         return a, len(lines), number_width
 
     def add_header_lines(lines, number_width):
-        padding = number_width * ' '
+        # Modified to use less rows by moving the "Bit" label next to the
+        # numbers.
 
         return [
-            padding + '               Bit',
-            padding + '',
-            padding + '  7   6   5   4   3   2   1   0',
-            padding + '+---+---+---+---+---+---+---+---+'
+            "Bit".rjust(number_width, ' ') + '  7   6   5   4   3   2   1   0',
+            number_width * ' ' + '+---+---+---+---+---+---+---+---+'
         ] + lines
 
     def add_horizontal_lines(byte_lines, number_width):
@@ -204,8 +214,10 @@ def message_layout_string(message):
 
         start_index = 4 + ((number_of_matrix_lines - 4) // 2 - 1)
 
-        if start_index < 4:
-            start_index = 4
+        # Modified to start at 2 minimum instead of 4, due to the lower number
+        # of rows required for the "Bit" label
+        if start_index < 2:
+            start_index = 2
 
         axis_lines = start_index * ['  ']
         axis_lines += [' B', ' y', ' t', ' e']
