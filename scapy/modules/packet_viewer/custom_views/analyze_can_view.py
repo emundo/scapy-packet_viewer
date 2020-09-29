@@ -20,6 +20,7 @@ from cantools.database.can import Database, Message, Signal
 import numpy as np
 from revdbc import analyze_identifier
 import urwid
+from urwid.numedit import FloatEdit
 
 from scapy.layers.can import CAN
 from scapy.packet import Packet
@@ -48,25 +49,43 @@ class AnalyzeCANView(DetailsView):
     SAVE_BUTTON_LABEL = "Save DBC to:"
     DEFAULT_SAVE_PATH = "~/analyze_can/restored.dbc"
 
-    LETTER_COL_LABEL = "Letter"
-    LABEL_COL_LABEL = "Label"
-    UNIT_COL_LABEL = "Unit"
-    DECODED_COL_LABEL = "Decoded Value"
+    LETTER_COLUMN_LABEL = "Letter"
+    LABEL_COLUMN_LABEL = "Label"
+    SIGNED_COLUMN_LABEL = "Signed?"
+    FLOAT_COLUMN_LABEL = "Float?"
+    OFFSET_COLUMN_LABEL = "Offset"
+    SCALE_COLUMN_LABEL = "Scale"
+    MINIMUM_COLUMN_LABEL = "Minimum"
+    MAXIMUM_COLUMN_LABEL = "Maximum"
+    UNIT_COLUMN_LABEL = "Unit"
+    DECODED_COLUMN_LABEL = "Decoded Value"
 
-    LETTER_COL_WIDTH = max(len(LETTER_COL_LABEL), 1)
-    LABEL_COL_WIDTH = max(len(LABEL_COL_LABEL), 30)
-    UNIT_COL_WIDTH = max(len(UNIT_COL_LABEL), 5)
-    DECODED_COL_WIDTH = max(len(DECODED_COL_LABEL), 10)
+    TABLE_COLUMN_INFO = [
+        # (column label, (minimum) width to hold values of this column)
+        (LETTER_COLUMN_LABEL, 1),
+        (LABEL_COLUMN_LABEL, 30),
+        (SIGNED_COLUMN_LABEL, 7),
+        (FLOAT_COLUMN_LABEL, 7),
+        (OFFSET_COLUMN_LABEL, 5),
+        (SCALE_COLUMN_LABEL, 5),
+        (MINIMUM_COLUMN_LABEL, 5),
+        (MAXIMUM_COLUMN_LABEL, 5),
+        (UNIT_COLUMN_LABEL, 4),
+        (DECODED_COLUMN_LABEL, 10)
+    ] # type: List[Tuple[str, int]]
 
-    COL_WIDTHS = (
-        LETTER_COL_WIDTH,
-        LABEL_COL_WIDTH,
-        UNIT_COL_WIDTH,
-        DECODED_COL_WIDTH
+    TABLE_COLUMN_LABELS = [ label for label, _ in TABLE_COLUMN_INFO ]
+    TABLE_COLUMNS = [
+        # (column label, column width)
+        (label, max(len(label), min_width))
+        for label, min_width
+        in TABLE_COLUMN_INFO
+    ] # type: List[Tuple[str, int]]
+
+    TABLE_COLUMN_DIVIDECHARS = 2
+    TABLE_WIDTH = (len(TABLE_COLUMNS) - 1) * TABLE_COLUMN_DIVIDECHARS + sum(
+        width for _, width in TABLE_COLUMNS
     )
-
-    COL_DISTANCE = 4
-    TABLE_WIDTH = (len(COL_WIDTHS) - 1) * COL_DISTANCE + sum(COL_WIDTHS)
 
     def __init__(self):
         # type: () -> None
@@ -90,7 +109,7 @@ class AnalyzeCANView(DetailsView):
         self._signal_table = urwid.ListBox(self._signal_table_walker)
 
         super(AnalyzeCANView, self).__init__(urwid.Columns([
-            ('weight', 2, urwid.Pile([
+            ('weight', 1, urwid.Pile([
                 ('pack', self._status_text),
                 ('pack', urwid.Divider()),
                 ('weight', 1, urwid.Filler(urwid.Padding(
@@ -117,7 +136,7 @@ class AnalyzeCANView(DetailsView):
                     ))
                 ]))
             ])),
-            ('weight', 3, urwid.Filler(
+            (cls.TABLE_WIDTH+1, urwid.Filler(
                 urwid.Padding(
                     urwid.Pile([
                         ('weight', 1, urwid.Padding(
@@ -346,22 +365,6 @@ class AnalyzeCANView(DetailsView):
             except BaseException as e:
                 self._emit('notification', "Saving failed: {}".format(e))
 
-    def _update_signal_name(self, message, signal, widget, text):
-        # type: (Message, Signal, urwid.Edit, str) -> None
-
-        # TODO: Verify the new name (might need the postchange event for that)
-        signal.name = text
-        message.refresh(strict=True)
-        self._update_views()
-
-    def _update_signal_unit(self, message, signal, widget, text):
-        # type: (Message, Signal, urwid.Edit, str) -> None
-
-        # TODO: Verify the new unit (might need the postchange event for that)
-        signal.unit = None if text == "" else text
-        message.refresh(strict=True)
-        self._update_views()
-
     def _update_views(self):
         # type: () -> None
         cls = self.__class__
@@ -372,6 +375,8 @@ class AnalyzeCANView(DetailsView):
         # - the result of the last analysis that was completed, if at least one
         #   analysis was completed
         
+        # TODO: Add state "Analysis Obsolete" for when new packets have arrived
+        # after an analysis was successful
         # Update the status text
         if self._current_data is None:
             self._status_text.set_text("No CAN packet selected.")
@@ -407,11 +412,37 @@ class AnalyzeCANView(DetailsView):
         message = self._get_message()
         if message is None:
             self._ascii_art_text.set_text("")
-            del self._signal_table_walker[:]
+
+            if len(self._signal_table_walker) > 0:
+                # Disconnect the 'modified' signal before updating the signal
+                # table walker.
+                urwid.disconnect_signal(
+                    self._signal_table_walker,
+                    'modified',
+                    self._update_views
+                )
+
+                del self._signal_table_walker[:]
+
+                # When the focus of the signal table changes, update the UI to
+                # highlight the focused signal in the ASCII art.
+                urwid.connect_signal(
+                    self._signal_table_walker,
+                    'modified',
+                    self._update_views
+                )
         else:
+            focused_signal_letter = None # type: Optional[str]
+
             focused_row = self._signal_table.focus # type: Optional[urwid.Columns]
-            focused_signal_letter = None if focused_row is None else \
-                focused_row.contents[0][0].get_text()[0] # type: Optional[str]
+            if focused_row is not None:
+                letter_column_index = \
+                    cls \
+                        .TABLE_COLUMN_LABELS \
+                        .index(cls.LETTER_COLUMN_LABEL)
+
+                letter_text = focused_row.contents[letter_column_index][0] # type: urwid.Text
+                focused_signal_letter = letter_text.get_text()[0]
 
             ascii_art, signal_letter_mapping = message_layout_string(
                 message,
@@ -435,49 +466,20 @@ class AnalyzeCANView(DetailsView):
 
                 # The table header
                 self._signal_table_walker.append(urwid.Columns([
-                    (cls.LETTER_COL_WIDTH, urwid.Text(cls.LETTER_COL_LABEL)),
-                    (cls.LABEL_COL_WIDTH, urwid.Text(cls.LABEL_COL_LABEL)),
-                    (cls.UNIT_COL_WIDTH, urwid.Text(cls.UNIT_COL_LABEL)),
-                    (cls.DECODED_COL_WIDTH, urwid.Text(cls.DECODED_COL_LABEL))
-                ], dividechars=cls.COL_DISTANCE))
+                    (width, urwid.Text(label))
+                    for label, width
+                    in cls.TABLE_COLUMNS
+                ], dividechars=cls.TABLE_COLUMN_DIVIDECHARS))
 
                 for signal, letter in sorted(
                     signal_letter_mapping.items(),
                     key=lambda x: x[1]
                 ):
-                    # The label
-                    signal_label_edit = urwid.Edit(
-                        edit_text=signal.name,
-                        wrap='clip'
-                    )
-
-                    urwid.connect_signal(
-                        signal_label_edit,
-                        'change',
-                        self._update_signal_name,
-                        weak_args=(message, signal)
-                    )
-
-                    # The unit
-                    signal_unit_edit = urwid.Edit(
-                        edit_text=(signal.unit or ""),
-                        wrap='clip'
-                    )
-
-                    urwid.connect_signal(
-                        signal_unit_edit,
-                        'change',
-                        self._update_signal_unit,
-                        weak_args=(message, signal)
-                    )
-
-                    # Table rows
-                    self._signal_table_walker.append(urwid.Columns([
-                        (cls.LETTER_COL_WIDTH, urwid.Text(letter)),
-                        (cls.LABEL_COL_WIDTH, signal_label_edit),
-                        (cls.UNIT_COL_WIDTH, signal_unit_edit),
-                        (cls.DECODED_COL_WIDTH, urwid.Text(""))
-                    ], dividechars=cls.COL_DISTANCE))
+                    self._signal_table_walker.append(self._build_table_row(
+                        message,
+                        signal,
+                        letter
+                    ))
 
                 # When the focus of the signal table changes, update the UI to
                 # highlight the focused signal in the ASCII art.
@@ -500,8 +502,144 @@ class AnalyzeCANView(DetailsView):
                 index += 1 # To account for the header row
 
                 row = self._signal_table_walker[index] # type: urwid.Columns
-                decoded_text = row.contents[3][0] # type: urwid.Text
+
+                decoded_column_index = \
+                    cls \
+                        .TABLE_COLUMN_LABELS \
+                        .index(cls.DECODED_COLUMN_LABEL)
+
+                decoded_text = row.contents[decoded_column_index][0] # type: urwid.Text
                 decoded_text.set_text("{} {}".format(
                     signal_values_decoded[signal.name],
                     signal.unit or ""
                 ))
+
+    def _build_table_row(self, message, signal, letter):
+        # type: (Message, Signal, str) -> urwid.Columns
+        cls = self.__class__
+
+        # TODO: Verify all inputs
+
+        def message_updated(message):
+            # type: (Message) -> None
+            message.refresh(strict=True)
+            self._update_views()
+
+        # Label
+        def update_signal_label(message, signal, widget, text):
+            # type: (Message, Signal, urwid.Edit, str) -> None
+            signal.name = text
+            message_updated(message)
+
+        signal_label_edit = urwid.Edit(edit_text=signal.name, wrap='clip')
+        urwid.connect_signal(signal_label_edit, 'change',
+                             update_signal_label, weak_args=(message, signal))
+        
+        # Signed?
+        def update_signal_signed(message, signal, widget, checked):
+            # type: (Message, Signal, urwid.Checkbox, bool) -> None
+            widget.set_label("yes" if checked else "no")
+            signal.is_signed = checked
+            message_updated(message)
+
+        signal_signed_checkbox = urwid.CheckBox(
+            "yes" if signal.is_signed else "no",
+            state=signal.is_signed
+        )
+        urwid.connect_signal(signal_signed_checkbox, 'change',
+                             update_signal_signed, weak_args=(message, signal))
+        
+        # Float?
+        def update_signal_float(message, signal, widget, checked): # TODO: Update the other inputs accurdingly
+            # type: (Message, Signal, urwid.Checkbox, bool) -> None
+            widget.set_label("yes" if checked else "no")
+            signal.is_float = checked
+            message_updated(message)
+
+        signal_float_checkbox = urwid.CheckBox(
+            "yes" if signal.is_float else "no",
+            state=signal.is_float
+        )
+        urwid.connect_signal(signal_float_checkbox, 'change',
+                             update_signal_float, weak_args=(message, signal))
+
+        # Offset
+        def update_signal_offset(message, signal, widget, old_text):
+            # type: (Message, Signal, urwid.FloatEdit, str) -> None
+            signal.offset = widget.value() or 0 # TODO: Use decimal here?
+            message_updated(message)
+
+        signal_offset_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.offset,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_offset_edit, 'postchange',
+                             update_signal_offset, weak_args=(message, signal))
+
+        # Scale
+        def update_signal_scale(message, signal, widget, old_text):
+            # type: (Message, Signal, urwid.FloatEdit, str) -> None
+            signal.scale = widget.value() or 0 # TODO: Use decimal here?
+            message_updated(message)
+
+        signal_scale_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.scale,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_scale_edit, 'postchange',
+                             update_signal_scale, weak_args=(message, signal))
+
+        # Minimum
+        def update_signal_minimum(message, signal, widget, old_text):
+            # type: (Message, Signal, urwid.FloatEdit, str) -> None
+            signal.minimum = widget.value() or 0 # TODO: Use decimal here?
+            message_updated(message)
+
+        signal_minimum_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.minimum,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_minimum_edit, 'postchange',
+                             update_signal_minimum, weak_args=(message, signal))
+
+        # Maximum
+        def update_signal_maximum(message, signal, widget, old_text):
+            # type: (Message, Signal, urwid.FloatEdit, str) -> None
+            signal.maximum = widget.value() or 0 # TODO: Use decimal here?
+            message_updated(message)
+
+        signal_maximum_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.maximum,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_maximum_edit, 'postchange',
+                             update_signal_maximum, weak_args=(message, signal))
+
+        # Unit
+        def update_signal_unit(message, signal, widget, text):
+            # type: (Message, Signal, urwid.Edit, str) -> None
+            signal.unit = None if text == "" else text
+            message_updated(message)
+
+        signal_unit_edit = urwid.Edit(edit_text=signal.unit or "", wrap='clip')
+        urwid.connect_signal(signal_unit_edit, 'change',
+                             update_signal_unit, weak_args=(message, signal))
+
+        # Label -> Column mapping
+        column_widgets = {
+            cls.LETTER_COLUMN_LABEL: urwid.Text(letter),
+            cls.LABEL_COLUMN_LABEL: signal_label_edit,
+            cls.SIGNED_COLUMN_LABEL: signal_signed_checkbox,
+            cls.FLOAT_COLUMN_LABEL: signal_float_checkbox,
+            cls.OFFSET_COLUMN_LABEL: signal_offset_edit,
+            cls.SCALE_COLUMN_LABEL: signal_scale_edit,
+            cls.MINIMUM_COLUMN_LABEL: signal_minimum_edit,
+            cls.MAXIMUM_COLUMN_LABEL: signal_maximum_edit,
+            cls.UNIT_COLUMN_LABEL: signal_unit_edit,
+            cls.DECODED_COLUMN_LABEL: urwid.Text("")
+        }
+
+        # Table rows
+        return urwid.Columns([
+            (width, column_widgets[label]) for label, width in cls.TABLE_COLUMNS
+        ], dividechars=cls.TABLE_COLUMN_DIVIDECHARS)
