@@ -4,33 +4,6 @@ from itertools import tee
 from typing import List, Tuple, Optional
 
 
-def pairwise(iterable):
-    # s -> (s0,s1), (s1,s2), (s2, s3), ...
-    first, second = tee(iterable)
-    next(second, None)
-    return zip(first, second)
-
-
-def variance(
-    values,  # type: List[float]
-    is_sorted=False,  # type: bool
-):
-    # type: (...) -> float
-    # If the caller knows it is already sorted
-    # we do not need to waste time here.
-    if len(values) < 2:
-        return 0
-
-    if not is_sorted:
-        values.sort()
-
-    values = [t2 - t1 for t1, t2 in pairwise(values)]
-
-    mean = sum(values) / (len(values) or 1)
-    numerator = sum([(t - mean) ** 2 for t in values])
-    return numerator / len(values)
-
-
 def byte_flips(
     all_data,  # type: List[bytes]
 ):

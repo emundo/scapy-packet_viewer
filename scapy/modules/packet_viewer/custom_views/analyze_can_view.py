@@ -30,9 +30,23 @@ from scapy.modules.packet_viewer.custom_views.message_information import \
     MessageDetailsData
 import scapy.modules.packet_viewer.custom_views.message_layout_string as mls
 
-Data = namedtuple("Data", [ "focused_packet", "packets" ])
-Success = namedtuple("Success", [ "value" ])
-Error = namedtuple("Error", [ "reason" ])
+Data = namedtuple("Data", [
+    "focused_packet", # type: Packet
+    "packets" # type: List[Packet]
+])
+
+Success = namedtuple("Success", [
+    "value"
+])
+
+Error = namedtuple("Error", [
+    "reason" # type: Throwable
+])
+
+AnalysisResult = namedtuple("AnalysisResult", [
+    "packets", # type: List[Packet]
+    "result" # type: Union[Success, Error]
+])
 
 
 class SignalValueGraph(urwid.Pile):
@@ -266,7 +280,7 @@ class SignalTableRow(urwid.Columns): # TODO: Heatmap column (?)
         self._signal = signal
         self._letter = letter
 
-        self._focused_packet = None # type: Optional[packet]
+        self._focused_packet = None # type: Optional[Packet]
         self._decoded_value = urwid.Text("")
 
         cls = self.__class__
@@ -554,11 +568,10 @@ class AnalyzeCANView(DetailsView):
         # type: () -> None
         cls = self.__class__
 
-        # Identifier: Result
-        #self._result_cache = {} # type: Dict[int, Union[Success, Error]]
+        # Mapping: CAN Packet Identifier -> Result
+        self._result_cache = {} # type: Dict[int, AnalysisResult]
         self._current_data = None # type: Optional[Data]
         self._process = None # type: Optional[Process]
-        self._last_result = None # type: Optional[Union[Success, Error]]
 
         self._ascii_art_text = urwid.Text("")
         self._status_text = urwid.Text("")
@@ -585,8 +598,9 @@ class AnalyzeCANView(DetailsView):
 
         # Callback for the "Rerun Analysis" button
         def rerun_analysis(_):
-            self._start_analysis()
-            self._update_views()
+            if not self._analysis_running:
+                self._start_analysis()
+                self._update_views()
 
         super(AnalyzeCANView, self).__init__(urwid.Columns([
             ('weight', 1, urwid.Pile([
@@ -647,23 +661,18 @@ class AnalyzeCANView(DetailsView):
                 all_packets
             ))
 
-            # Only trigger a new analysis when the identifier changes, not when
-            # the packet list changes. Triggering an analysis on a change to the
-            # packet list would trigger a new analysis on every incoming packet
-            # for that identifier, which might be annoying. Still, changes to
-            # the packet list are stored to _current_data, so that a manually
-            # restarted analysis has access to the most recent list.
-            run_analysis = \
-                self._current_data is None or \
-                self._current_data.focused_packet.identifier != \
-                    focused_packet.identifier
-
             self._current_data = Data(
                 focused_packet=focused_packet,
                 packets=packets_to_analyze
             )
 
-            if run_analysis:
+            # Only trigger a new analysis in case there is no cached result for
+            # that identifier. Triggering an analysis on any change to the
+            # packet list would trigger a new analysis on every incoming packet
+            # for that identifier, which might be annoying. Still, changes to
+            # the packet list are stored to _current_data, so that a manually
+            # restarted analysis has access to the most recent list.
+            if focused_packet.identifier not in self._result_cache:
                 self._start_analysis()
         else:
             self._abort_analysis()
@@ -683,7 +692,7 @@ class AnalyzeCANView(DetailsView):
         # Yes, the following code is starting both a process and a thread.
         #
         # Threads:
-        # - are subject to the GIL (not a big problem here)
+        # - are subject to the GIL (probably not a big problem here)
         # - can't be terminated without horrible hacks
         #
         # Processes:
@@ -709,7 +718,9 @@ class AnalyzeCANView(DetailsView):
 
         Thread(
             target=self._wait_for_analysis,
-            args=(result_queue,),
+            args=(result_queue, data),
+            # The daemon flag makes the thread automatically terminate when the
+            # main thread/process terminates.
             daemon=True
         ).start()
 
@@ -763,24 +774,31 @@ class AnalyzeCANView(DetailsView):
         result_queue.close()
         result_queue.join_thread()
 
-    def _wait_for_analysis(self, result_queue):
-        # type: (Queue) -> None
+    def _wait_for_analysis(self, result_queue, data):
+        # type: (Queue, Data) -> None
         # WARNING: This runs in a different thread!
+        identifier = data.focused_packet.identifier
+
         self._process.join()
         try:
-            last_result = result_queue.get(False)
+            result = result_queue.get(False)
 
-            if isinstance(last_result, Success):
-                last_result = Success(value=last_result.value._replace(
+            if isinstance(result, Success):
+                # Parse the DBC string into a Database object again.
+                result = Success(value=result.value._replace(
                     restored_dbc=cantools.database.load_string(
-                        last_result.value.restored_dbc,
+                        result.value.restored_dbc,
                         database_format='dbc'
                     )
                 ))
 
-            self._last_result = last_result
+            self._result_cache[identifier] = AnalysisResult(
+                packets=data.packets,
+                result=result
+            )
         except Empty:
-            self._last_result = None
+            pass
+
         self._emit('msg_to_main_thread', 'call', self._update_views)
 
     @property
@@ -790,12 +808,16 @@ class AnalyzeCANView(DetailsView):
 
     def _get_success_result(self):
         # type: () -> Optional[Success]
-        if (
-            self._current_data is not None and
-            not self._analysis_running and
-            isinstance(self._last_result, Success)
-        ):
-            return self._last_result
+        if self._current_data is None or self._analysis_running:
+            return None
+
+        cached_result = self._result_cache.get(
+            self._current_data.focused_packet.identifier,
+            None
+        )
+
+        if isinstance(cached_result.result, Success):
+            return cached_result.result
 
         return None
 
@@ -845,11 +867,7 @@ class AnalyzeCANView(DetailsView):
         # There are three pieces of state this plugin holds:
         # - the current data for analysis
         # - whether the analysis is currently running or not
-        # - the result of the last analysis that was completed, if at least one
-        #   analysis was completed
-        
-        # TODO: Add state "Analysis Obsolete" for when new packets have arrived
-        # after an analysis was successful
+        # - the cached results of previous analysis runs
 
         # Update the status text
         if self._current_data is None:
@@ -858,16 +876,28 @@ class AnalyzeCANView(DetailsView):
             if self._analysis_running:
                 self._status_text.set_text("Analysis Running...")
             else:
-                if isinstance(self._last_result, Success):
-                    self._status_text.set_text("Analysis Done")
+                cached_result = self._result_cache.get(
+                    self._current_data.focused_packet.identifier,
+                    None
+                )
 
-                elif isinstance(self._last_result, Error):
-                    self._status_text.set_text("Analysis Failed")
-                    # TODO: Additional information about the failure
-                    # (via popup probably)
-
-                else:
+                if cached_result is None:
                     self._status_text.set_text("<unknown state>")
+                else:
+                    obsolete = \
+                        cached_result.packets != self._current_data.packets
+
+                    if isinstance(cached_result.result, Success):
+                        self._status_text.set_text("Analysis Done{}".format(
+                            " (obsolete)" if obsolete else ""
+                        ))
+
+                    elif isinstance(cached_result.result, Error):
+                        self._status_text.set_text("Analysis Failed{}".format(
+                            " (obsolete)" if obsolete else ""
+                        ))
+                        # TODO: Additional information about the failure
+                        # (via popup probably)
 
         # Update all DBC-related widgets
         message = self._get_message()
