@@ -4,8 +4,35 @@ from cantools.database.can.message import Message
 from cantools.database.can.signal import Signal
 from cantools.database.utils import start_bit
 
+def get_signal_letter_mapping(message):
+    # type: (Message) -> Dict[Signal, str]
+    """
+    Assign each signal of a message a unique letter. The order in which letters
+    are assigned to signals is based on the order in which the signals are given
+    by message._signals. Should produce the same assignment every time given the
+    same message.
+
+    Args:
+        message: The message.
+
+    Returns:
+        The mapping between the signals of the message and (unique) letters.
+    """
+
+    # Mapping between signals and signal letters
+    signal_letter_mapping = {} # type: Dict[Signal, str]
+
+    # Populate the mappings
+    next_signal_letter_ord = ord('a')
+    for signal in message._signals:
+        next_signal_letter = chr(next_signal_letter_ord)
+        signal_letter_mapping[signal] = next_signal_letter
+        next_signal_letter_ord += 1
+    
+    return signal_letter_mapping
+
 def message_layout_string(message, highlight=None):
-    # type: (Message, Optional[str]) -> Tuple[str, Dict[Signal, str]]
+    # type: (Message, Optional[str]) -> str
     """
     This is a copy of the cantools.database.can.message.Message.layout_string
     method, adjusted to the needs of the AnalyzeCANView.
@@ -19,26 +46,18 @@ def message_layout_string(message, highlight=None):
     This copy of the layout_string method is adjusted to label signals right in
     the signal ASCII-art, using lowercase letters from 'a' to 'z' in place of
     the original signal-starting x's. The mapping between the letters and the
-    signals is returned with the ASCII-art string.
+    signals is obtained by calling `get_signal_letter_mapping`.
 
     Args:
         message: The message to format.
         highlight: The letter of the signal to highlight, or None.
 
     Returns:
-        The message formatted as ASCII-art, and the mapping between the signals
-        and signal letters.
+        The message formatted as ASCII-art.
     """
 
     # Mapping between signals and signal letters
-    signal_letter_mapping = {} # type: Dict[Signal, str]
-
-    # Populate the mappings
-    next_signal_letter_ord = ord('a')
-    for signal in message._signals:
-        next_signal_letter = chr(next_signal_letter_ord)
-        signal_letter_mapping[signal] = next_signal_letter
-        next_signal_letter_ord += 1
+    signal_letter_mapping = get_signal_letter_mapping(message)
 
     # A string containing all signal letters for convenience
     all_signal_letters = ''.join(signal_letter_mapping.values())
@@ -214,10 +233,9 @@ def message_layout_string(message, highlight=None):
 
         start_index = 4 + ((number_of_matrix_lines - 4) // 2 - 1)
 
-        # Modified to start at 2 minimum instead of 4, due to the lower number
+        # Modified to start at 0 minimum instead of 4, due to the lower number
         # of rows required for the "Bit" label
-        if start_index < 2:
-            start_index = 2
+        start_index = max(start_index, 0)
 
         axis_lines = start_index * ['  ']
         axis_lines += [' B', ' y', ' t', ' e']
@@ -235,4 +253,4 @@ def message_layout_string(message, highlight=None):
     lines = add_y_axis_name(lines)
     lines = [line.rstrip() for line in lines]
 
-    return '\n'.join(lines), signal_letter_mapping
+    return '\n'.join(lines)

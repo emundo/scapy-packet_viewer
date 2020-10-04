@@ -89,19 +89,6 @@ def data_flips(
     return flips
 
 
-def graph_values(
-    all_data,  # type: List[bytes]
-):
-    # type: (...) -> Tuple[List[List[int]], int]
-    # TODO: for simplicity we only take the first byte of each message
-    #  -> later this should be fields
-    number_values = len(all_data)  # type: int
-    graph_data = [[all_data[x][0]] for x in range(number_values)]  # type:  List[List[int]]
-    flattened_list = [y for x in graph_data for y in x]
-    top = max(flattened_list)
-    return graph_data, top
-
-
 def average(
     values,  # type: List[float]
 ):

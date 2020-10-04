@@ -7,6 +7,7 @@
 
 import binascii
 from collections import namedtuple
+from decimal import Decimal
 from multiprocessing import Process, Queue
 import os
 from queue import Empty
@@ -27,27 +28,199 @@ from scapy.packet import Packet
 from scapy.modules.packet_viewer.details_view import DetailsView
 from scapy.modules.packet_viewer.custom_views.message_information import \
     MessageDetailsData
-from scapy.modules.packet_viewer.custom_views.message_layout_string import \
-    message_layout_string
+import scapy.modules.packet_viewer.custom_views.message_layout_string as mls
 
 Data = namedtuple("Data", [ "focused_packet", "packets" ])
 Success = namedtuple("Success", [ "value" ])
 Error = namedtuple("Error", [ "reason" ])
 
 
-class AnalyzeCANView(DetailsView):
-    # TODO: Should probably cache analysis results
-    """
-    Custom view exclusively for CAN packets which shows the results of the
-    structural analysis as performed by the external package "revdbc" and allows
-    editing and saving the restored DBC message structures.
-    """
+class SignalValueGraph(urwid.Pile):
+    PALETTE = [
+        ("bar 1", "", "dark red"),
+        ("bar 2", "", "dark green")
+    ]
 
-    action_name = "Analyze CAN"
+    def __init__(self, data, minimum, maximum):
+        # type: (List[float], float, float) -> None
 
-    RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
-    SAVE_BUTTON_LABEL = "Save DBC to:"
-    DEFAULT_SAVE_PATH = "~/analyze_can/restored.dbc"
+        # To be able to display positive and negative values, two bar graphs are
+        # created if needed.
+        if minimum >= maximum:
+            raise ValueError("The minimum must be smaller than the maximum.")
+
+        # Calculate offset and range of the values to be displayed, both in
+        # positive and negative. Note that the following variables can never
+        # both be 'None' because of the check above.
+        positive_offset = max(minimum, 0) if maximum > 0 else None
+        negative_offset = min(maximum, 0) if minimum < 0 else None
+
+        positive_range = None if positive_offset is None else \
+            abs(maximum - positive_offset)
+        negative_range = None if negative_offset is None else \
+            abs(minimum - negative_offset)
+
+        # Calculate the step size for the scale. The bigger of the two ranges is
+        # divided into three segments (0%-33%, 33%-67%, 67%-100%) and thus
+        # dictates the step size for the smaller range. If only one range is
+        # present, that range is instead divided into five segments to make up
+        # for the missing range.
+        positive_scale = None
+        negative_scale = None
+
+        if positive_range is None:
+            # Only the negative range exists, divide it into five segments.
+            negative_scale = [
+                negative_offset - negative_range * 1.0,
+                negative_offset - negative_range * 0.8,
+                negative_offset - negative_range * 0.6,
+                negative_offset - negative_range * 0.4,
+                negative_offset - negative_range * 0.2,
+                negative_offset - negative_range * 0.0
+            ]
+        elif negative_range is None:
+            # Only the positive range exists, divide it into five segments.
+            positive_scale = [
+                positive_offset + positive_range * 0.0,
+                positive_offset + positive_range * 0.2,
+                positive_offset + positive_range * 0.4,
+                positive_offset + positive_range * 0.6,
+                positive_offset + positive_range * 0.8,
+                positive_offset + positive_range * 1.0
+            ]
+        else:
+            # Both ranges exist. Find the bigger one and divide it into three
+            # segments to find the step size.
+            step_size = max(positive_range, negative_range) / 3
+
+            # Add (up to four) segment separators in positive direction.
+            positive_scale = []
+            for i in range(4):
+                segment_separator = i * step_size
+
+                if segment_separator <= maximum:
+                    positive_scale.append(segment_separator)
+
+            # Add (up to four) segment separators in negative direction.
+            negative_scale = []
+            for i in range(4):
+                segment_separator = i * step_size * -1
+
+                if segment_separator >= minimum:
+                    negative_scale.insert(0, segment_separator)
+
+            # Note that both scales contain the separator at 0, so the maximum
+            # amount of distinct separators is 7, making for one more segment in
+            # total than in above cases where only a single range exists.
+
+        # Build the VScales
+        positive_vscale_width = None
+        negative_vscale_width = None
+
+        positive_vscale = None
+        negative_vscale = None
+
+        def label(y): # TODO: ?
+            return str(y)
+
+        if positive_scale is not None:
+            positive_vscale_width = max(len(label(y)) for y in positive_scale)
+            positive_vscale = urwid.GraphVScale(
+                [ [ y - positive_offset, label(y) ] for y in positive_scale ],
+                positive_range
+            )
+
+        if negative_scale is not None:
+            negative_vscale_width = max(len(label(y)) for y in negative_scale)
+            negative_vscale = urwid.GraphVScale(
+                [ [ y - minimum, label(y) ] for y in negative_scale ],
+                negative_range
+            )
+
+        vscales_width = max(
+            positive_vscale_width or 0,
+            negative_vscale_width or 0
+        )
+
+        # A little trick is used to achieve the ripple effect of this bar graph:
+        # Bars are defined to consist of two different-color segments, but when
+        # building the bars, one segment is always set to height 0 while the
+        # other segment gets the actual bar height. That way, bars of different
+        # colors can be created.
+        positive_graph = None
+        negative_graph = None
+
+        if positive_scale is not None:
+            positive_graph = urwid.BarGraph(
+                [ "", "bar 1", "bar 2" ],
+                hatt=[ "", "bar 1", "bar 2" ]
+            )
+
+            positive_graph_data = []
+
+            for index, element in enumerate(data):
+                element -= positive_offset
+                element = max(element, 0)
+
+                if index % 2 == 0:
+                    positive_graph_data.append((element, 0))
+                else:
+                    positive_graph_data.append((0, element))
+
+            positive_graph.set_data(
+                positive_graph_data,
+                positive_range,
+                [ y - positive_offset for y in positive_scale ]
+            )
+
+        if negative_scale is not None:
+            # The negative bar effect is achieved by first filling the whole bar
+            # with the desired color and then overdrawing the bottom portion of
+            # the bar with the background color.
+            negative_graph = urwid.BarGraph(
+                [ "", "bar 1", "bar 2", "" ],
+                hatt=[ "", "bar 1", "bar 2", "" ]
+            )
+
+            negative_graph_data = []
+
+            for index, element in enumerate(data):
+                element -= minimum
+                element = max(element, 0)
+
+                if index % 2 == 0:
+                    negative_graph_data.append((negative_range, 0, element))
+                else:
+                    negative_graph_data.append((0, negative_range, element))
+
+            negative_graph.set_data(
+                negative_graph_data,
+                negative_range,
+                [ y - minimum for y in negative_scale ]
+            )
+
+        # Prepare the graphs and scales to be displayed together in a pile
+        pile_contents = []
+
+        if positive_graph is not None:
+            # Display the scale to the left of the graph
+            pile_contents.append(('weight', positive_range, urwid.Columns([
+                (vscales_width, positive_vscale),
+                ('weight', 1, positive_graph)
+            ], dividechars=1)))
+
+        if negative_graph is not None:
+            # Display the scale to the left of the graph
+            pile_contents.append(('weight', negative_range, urwid.Columns([
+                (vscales_width, negative_vscale),
+                ('weight', 1, negative_graph)
+            ], dividechars=1)))
+
+        super(SignalValueGraph, self).__init__(pile_contents)
+
+
+class SignalTableRow(urwid.Columns): # TODO: Heatmap column (?)
+    urwid_signals = [ 'message_updated' ]
 
     LETTER_COLUMN_LABEL = "Letter"
     LABEL_COLUMN_LABEL = "Label"
@@ -83,20 +256,312 @@ class AnalyzeCANView(DetailsView):
     ] # type: List[Tuple[str, int]]
 
     TABLE_COLUMN_DIVIDECHARS = 2
-    TABLE_WIDTH = (len(TABLE_COLUMNS) - 1) * TABLE_COLUMN_DIVIDECHARS + sum(
+    TABLE_ROW_WIDTH = (len(TABLE_COLUMNS) - 1) * TABLE_COLUMN_DIVIDECHARS + sum(
         width for _, width in TABLE_COLUMNS
     )
+
+    def __init__(self, message, signal, letter, focused_packet=None):
+        # type: (Message, Signal, str, Optional[Packet]) -> None
+        self._message = message
+        self._signal = signal
+        self._letter = letter
+
+        self._focused_packet = None # type: Optional[packet]
+        self._decoded_value = urwid.Text("")
+
+        cls = self.__class__
+
+        # Register urwid signals before doing anything else
+        urwid.register_signal(cls, cls.urwid_signals)
+
+        # TODO: Verify all inputs
+
+        # Label
+        signal_label_edit = urwid.Edit(edit_text=signal.name, wrap='clip')
+        urwid.connect_signal(signal_label_edit, 'postchange',
+                             self._update_signal_label)
+        
+        # Signed?
+        signal_signed_checkbox = urwid.CheckBox(
+            "yes" if signal.is_signed else "no",
+            state=signal.is_signed
+        )
+        urwid.connect_signal(signal_signed_checkbox, 'postchange',
+                             self._update_signal_signed)
+        
+        # Float?
+        signal_float_checkbox = urwid.CheckBox(
+            "yes" if signal.is_float else "no",
+            state=signal.is_float
+        )
+        urwid.connect_signal(signal_float_checkbox, 'postchange',
+                             self._update_signal_float)
+
+        # Offset
+        signal_offset_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.offset,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_offset_edit, 'postchange',
+                             self._update_signal_offset)
+
+        # Scale
+        signal_scale_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.scale,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_scale_edit, 'postchange',
+                             self._update_signal_scale)
+
+        # Minimum
+        signal_minimum_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.minimum,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_minimum_edit, 'postchange',
+                             self._update_signal_minimum)
+
+        # Maximum
+        signal_maximum_edit = FloatEdit( # TODO: This doesn't work correctly :(
+            default=signal.decimal.maximum,
+            preserveSignificance=False
+        )
+        urwid.connect_signal(signal_maximum_edit, 'postchange',
+                             self._update_signal_maximum)
+
+        # Unit
+        signal_unit_edit = urwid.Edit(edit_text=signal.unit or "", wrap='clip')
+        urwid.connect_signal(signal_unit_edit, 'postchange',
+                             self._update_signal_unit)
+
+        # Label -> Column mapping
+        column_widgets = {
+            cls.LETTER_COLUMN_LABEL: urwid.Text(letter),
+            cls.LABEL_COLUMN_LABEL: signal_label_edit,
+            cls.SIGNED_COLUMN_LABEL: signal_signed_checkbox,
+            cls.FLOAT_COLUMN_LABEL: signal_float_checkbox,
+            cls.OFFSET_COLUMN_LABEL: signal_offset_edit,
+            cls.SCALE_COLUMN_LABEL: signal_scale_edit,
+            cls.MINIMUM_COLUMN_LABEL: signal_minimum_edit,
+            cls.MAXIMUM_COLUMN_LABEL: signal_maximum_edit,
+            cls.UNIT_COLUMN_LABEL: signal_unit_edit,
+            cls.DECODED_COLUMN_LABEL: self._decoded_value
+        }
+
+        super(SignalTableRow, self).__init__([
+            (width, column_widgets[label]) for label, width in cls.TABLE_COLUMNS
+        ], dividechars=cls.TABLE_COLUMN_DIVIDECHARS)
+
+        self.update(focused_packet)
+
+    def update(self, focused_packet, force=False):
+        # type: (Optional[Packet], boolean) -> None
+        if focused_packet is not self._focused_packet or force:
+            self._focused_packet = focused_packet
+
+            # Update the "Decoded Value" cell if needed
+            if focused_packet is None:
+                self._decoded_value.set_text("")
+            else:
+                self._decoded_value.set_text("{} {}".format(
+                    self._message.decode(focused_packet.data).get(
+                        self._signal.name,
+                        "n.A."
+                    ),
+                    self._signal.unit or ""
+                ))
+
+    @property
+    def signal(self):
+        # type: () -> Signal
+        return self._signal
+
+    @property
+    def letter(self):
+        # type: () -> str
+        return self._letter
+
+    def _signal_updated(self):
+        # type: () -> None
+
+        # Refresh and re-validate the message
+        self._message.refresh(strict=True)
+
+        # Force an update
+        self.update(self._focused_packet, force=True)
+
+        urwid.emit_signal(self, 'message_updated')
+    
+    def _update_signal_label(self, widget, old_text):
+        # type: (urwid.Edit, str) -> None
+        self._signal.name = widget.edit_text
+        self._signal_updated()
+
+    def _update_signal_signed(self, widget, old_checked):
+        # type: (urwid.Checkbox, bool) -> None
+        checked = widget.get_state()
+        widget.set_label("yes" if checked else "no")
+        self._signal.is_signed = checked
+        self._signal_updated()
+
+    def _update_signal_float(self, widget, old_checked):
+        # type: (urwid.Checkbox, bool) -> None
+        checked = widget.get_state()
+        widget.set_label("yes" if checked else "no")
+        self._signal.is_float = checked
+        self._signal_updated()
+
+    def _update_signal_offset(self, widget, old_text):
+        # type: (urwid.FloatEdit, str) -> None
+        self._signal.decimal.offset = widget.value() or Decimal(0)
+        self._signal.offset = float(self._signal.decimal.offset)
+        self._signal_updated()
+
+    def _update_signal_scale(self, widget, old_text):
+        # type: (urwid.FloatEdit, str) -> None
+        self._signal.decimal.scale = widget.value() or Decimal(0)
+        self._signal.scale = float(self._signal.decimal.scale)
+        self._signal_updated()
+
+    def _update_signal_minimum(self, widget, old_text):
+        # type: (urwid.FloatEdit, str) -> None
+        self._signal.decimal.minimum = widget.value() or Decimal(0)
+        self._signal.minimum = float(self._signal.decimal.minimum)
+        self._signal_updated()
+
+    def _update_signal_maximum(self, widget, old_text):
+        # type: (urwid.FloatEdit, str) -> None
+        self._signal.decimal.maximum = widget.value() or Decimal(0)
+        self._signal.maximum = float(self._signal.decimal.maximum)
+        self._signal_updated()
+
+    def _update_signal_unit(self, widget, old_text):
+        # type: (urwid.Edit, str) -> None
+        text = widget.edit_text
+        self._signal.unit = None if text == "" else text
+        self._signal_updated()
+
+
+class SignalTable(urwid.ListBox):
+    urwid_signals = [ 'focus_changed', 'message_updated' ]
+
+    TABLE_WIDTH = SignalTableRow.TABLE_ROW_WIDTH
+
+    def __init__(self, message=None, focused_packet=None):
+        # type: (Optional[Message], Optional[Packet]) -> None
+        self._message = None # type: Optional[Message]
+
+        cls = self.__class__
+
+        # Register urwid signals before doing anything else
+        urwid.register_signal(cls, cls.urwid_signals)
+
+        super(SignalTable, self).__init__(urwid.SimpleFocusListWalker([
+            # Initialized with just the table header
+            urwid.Columns([
+                (width, urwid.Text(label))
+                for label, width
+                in SignalTableRow.TABLE_COLUMNS
+            ], dividechars=SignalTableRow.TABLE_COLUMN_DIVIDECHARS)
+        ]))
+
+        self.update(message, focused_packet)
+
+    def _focus_changed(self):
+        # type: () -> None
+        urwid.emit_signal(self, 'focus_changed')
+
+    def _message_updated(self):
+        # type: () -> None
+
+        # Simply forward the event
+        urwid.emit_signal(self, 'message_updated')
+
+    def update(self, message, focused_packet=None, force=False):
+        # type: (Optional[Message], Optional[Packet], boolean) -> None
+
+        # If the message has changed, update the table
+        if message is not self._message or force:
+            self._message = message
+
+            # Disconnect the 'modified' signal before updating the table walker,
+            # as modification in code triggers events.
+            urwid.disconnect_signal(
+                self.body,
+                'modified',
+                self._focus_changed
+            )
+
+            # Delete all rows except for the header
+            del self.body[1:]
+
+            if message is not None:
+                # Map signals to letters
+                signal_letter_mapping = mls.get_signal_letter_mapping(message)
+
+                # Build the signal rows
+                for signal, letter in sorted(
+                    signal_letter_mapping.items(),
+                    key=lambda x: x[1]
+                ):
+                    row = SignalTableRow(message, signal, letter)
+
+                    # Get notified about changes to the message
+                    urwid.connect_signal(
+                        row,
+                        'message_updated',
+                        self._message_updated
+                    )
+
+                    self.body.append(row)
+
+            # Reconnect the signal as soon as the modifications are done
+            urwid.connect_signal(
+                self.body,
+                'modified',
+                self._focus_changed
+            )
+
+        for row in self.body[1:]:
+            row.update(focused_packet)
+
+    @property
+    def focused_row(self):
+        # type: () -> Optional[SignalTableRow]
+
+        # Exclude the header by checking for a focus position of 0
+        if self.focus is None or self.focus_position == 0:
+            return None
+
+        return self.focus
+
+
+class AnalyzeCANView(DetailsView):
+    """
+    Custom view exclusively for CAN packets which shows the results of the
+    structural analysis as performed by the external package "revdbc" and allows
+    editing and saving the restored DBC message structures.
+    """
+
+    action_name = "Analyze CAN"
+    palette = SignalValueGraph.PALETTE
+
+    RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
+    SAVE_BUTTON_LABEL = "Save DBC to:"
+    DEFAULT_SAVE_PATH = "~/analyze_can/restored.dbc"
 
     def __init__(self):
         # type: () -> None
         cls = self.__class__
 
+        # Identifier: Result
+        #self._result_cache = {} # type: Dict[int, Union[Success, Error]]
         self._current_data = None # type: Optional[Data]
         self._process = None # type: Optional[Process]
         self._last_result = None # type: Optional[Union[Success, Error]]
 
         self._ascii_art_text = urwid.Text("")
-        self._status_text = urwid.Text("No CAN packet selected.")
+        self._status_text = urwid.Text("")
         self._save_path_edit = urwid.Edit(
             edit_text=cls.DEFAULT_SAVE_PATH,
             wrap='clip'
@@ -104,9 +569,24 @@ class AnalyzeCANView(DetailsView):
 
         self._graph = urwid.WidgetPlaceholder(urwid.SolidFill())
 
-        self._signal_table_walker = urwid.SimpleFocusListWalker([])
-        self._signal_table_walker_state = None # type: Optional[message]
-        self._signal_table = urwid.ListBox(self._signal_table_walker)
+        self._signal_table = SignalTable()
+
+        urwid.connect_signal(
+            self._signal_table,
+            'focus_changed',
+            self._update_views
+        )
+
+        urwid.connect_signal(
+            self._signal_table,
+            'message_updated',
+            self._update_views
+        )
+
+        # Callback for the "Rerun Analysis" button
+        def rerun_analysis(_):
+            self._start_analysis()
+            self._update_views()
 
         super(AnalyzeCANView, self).__init__(urwid.Columns([
             ('weight', 1, urwid.Pile([
@@ -129,20 +609,20 @@ class AnalyzeCANView(DetailsView):
                     ('pack', urwid.Padding(
                         urwid.Button(
                             cls.RERUN_ANALYSIS_BUTTON_LABEL,
-                            on_press=lambda _: self._rerun_analysis()
+                            on_press=rerun_analysis
                         ),
                         align='left',
                         width=len(cls.RERUN_ANALYSIS_BUTTON_LABEL)+4
                     ))
                 ]))
             ])),
-            (cls.TABLE_WIDTH+1, urwid.Filler(
+            (SignalTable.TABLE_WIDTH+1, urwid.Filler(
                 urwid.Padding(
                     urwid.Pile([
                         ('weight', 1, urwid.Padding(
                             self._signal_table,
                             align='left',
-                            width=cls.TABLE_WIDTH
+                            width=SignalTable.TABLE_WIDTH
                         )),
                         ('pack', urwid.Divider()),
                         ('weight', 1, self._graph)
@@ -184,20 +664,20 @@ class AnalyzeCANView(DetailsView):
             )
 
             if run_analysis:
-                self._start_analysis(self._current_data)
-                self._update_views()
+                self._start_analysis()
         else:
             self._abort_analysis()
             self._current_data = None
-            self._update_views()
 
         self._update_views()
 
-    def _start_analysis(self, data):
-        # type: (Data) -> None
+    def _start_analysis(self):
+        # type: () -> None
         """
         (Re-)start the analysis.
         """
+        data = self._current_data
+
         self._abort_analysis()
 
         # Yes, the following code is starting both a process and a thread.
@@ -283,12 +763,6 @@ class AnalyzeCANView(DetailsView):
         result_queue.close()
         result_queue.join_thread()
 
-    def _rerun_analysis(self):
-        # type: () -> None
-        if self._current_data is not None and not self._analysis_running:
-            self._start_analysis(self._current_data)
-            self._update_views()
-
     def _wait_for_analysis(self, result_queue):
         # type: (Queue) -> None
         # WARNING: This runs in a different thread!
@@ -322,7 +796,7 @@ class AnalyzeCANView(DetailsView):
             isinstance(self._last_result, Success)
         ):
             return self._last_result
-        
+
         return None
 
     def _get_message(self):
@@ -367,7 +841,6 @@ class AnalyzeCANView(DetailsView):
 
     def _update_views(self):
         # type: () -> None
-        cls = self.__class__
 
         # There are three pieces of state this plugin holds:
         # - the current data for analysis
@@ -377,6 +850,7 @@ class AnalyzeCANView(DetailsView):
         
         # TODO: Add state "Analysis Obsolete" for when new packets have arrived
         # after an analysis was successful
+
         # Update the status text
         if self._current_data is None:
             self._status_text.set_text("No CAN packet selected.")
@@ -395,251 +869,44 @@ class AnalyzeCANView(DetailsView):
                 else:
                     self._status_text.set_text("<unknown state>")
 
-        # Update the packet statistic widgets
-        success_result = self._get_success_result()
-        if self._current_data is None or success_result is None:
+        # Update all DBC-related widgets
+        message = self._get_message()
+        if self._current_data is None or message is None:
+            self._signal_table.update(None)
+            self._ascii_art_text.set_text("")
             self._graph.original_widget = urwid.SolidFill()
         else:
-            # TODO: Use the data transferred via success_result
-            message_details = MessageDetailsData([ bytearray(packet.data) for packet in self._current_data.packets ])
-            message_details.set_detailed_message_information()
-            message_details.create_graph()
-            message_details.create_bit_correlation()
-
-            self._graph.original_widget = message_details.graph
-
-        # Update the DBC message widgets
-        message = self._get_message()
-        if message is None:
-            self._ascii_art_text.set_text("")
-
-            if len(self._signal_table_walker) > 0:
-                # Disconnect the 'modified' signal before updating the signal
-                # table walker.
-                urwid.disconnect_signal(
-                    self._signal_table_walker,
-                    'modified',
-                    self._update_views
-                )
-
-                del self._signal_table_walker[:]
-
-                # When the focus of the signal table changes, update the UI to
-                # highlight the focused signal in the ASCII art.
-                urwid.connect_signal(
-                    self._signal_table_walker,
-                    'modified',
-                    self._update_views
-                )
-        else:
-            focused_signal_letter = None # type: Optional[str]
-
-            focused_row = self._signal_table.focus # type: Optional[urwid.Columns]
-            if focused_row is not None:
-                letter_column_index = \
-                    cls \
-                        .TABLE_COLUMN_LABELS \
-                        .index(cls.LETTER_COLUMN_LABEL)
-
-                letter_text = focused_row.contents[letter_column_index][0] # type: urwid.Text
-                focused_signal_letter = letter_text.get_text()[0]
-
-            ascii_art, signal_letter_mapping = message_layout_string(
+            self._signal_table.update(
                 message,
-                highlight=focused_signal_letter
+                self._current_data.focused_packet
             )
 
-            self._ascii_art_text.set_text(ascii_art)
+            focused_row = self._signal_table.focused_row
+            focused_signal = None if focused_row is None else focused_row.signal
+            focused_letter = None if focused_row is None else focused_row.letter
 
-            if self._signal_table_walker_state is not message:
-                self._signal_table_walker_state = message
+            self._ascii_art_text.set_text(mls.message_layout_string(
+                message,
+                highlight=focused_letter
+            ))
 
-                # Disconnect the 'modified' signal before updating the signal
-                # table walker.
-                urwid.disconnect_signal(
-                    self._signal_table_walker,
-                    'modified',
-                    self._update_views
+            if focused_signal is None:
+                self._graph.original_widget = urwid.SolidFill()
+            else:
+                graph_data = [ message.decode(p.data, decode_choices=False).get(
+                    focused_signal.name,
+                    None
+                ) for p in self._current_data.packets ]
+
+                # Use minimum and maximum as defined in the signal. If those are
+                # not defined, fall back to the minimum and maximum values.
+                graph_minimum = focused_signal.minimum or min(graph_data)
+                graph_maximum = focused_signal.maximum or max(graph_data)
+
+                self._graph.original_widget = urwid.LineBox(
+                    SignalValueGraph(graph_data, graph_minimum, graph_maximum),
+                    "Data Over Time",
+                    lline="", rline="", bline="",
+                    blcorner="", brcorner="",
+                    trcorner=u"─", tlcorner=u"─"
                 )
-
-                del self._signal_table_walker[:]
-
-                # The table header
-                self._signal_table_walker.append(urwid.Columns([
-                    (width, urwid.Text(label))
-                    for label, width
-                    in cls.TABLE_COLUMNS
-                ], dividechars=cls.TABLE_COLUMN_DIVIDECHARS))
-
-                for signal, letter in sorted(
-                    signal_letter_mapping.items(),
-                    key=lambda x: x[1]
-                ):
-                    self._signal_table_walker.append(self._build_table_row(
-                        message,
-                        signal,
-                        letter
-                    ))
-
-                # When the focus of the signal table changes, update the UI to
-                # highlight the focused signal in the ASCII art.
-                urwid.connect_signal(
-                    self._signal_table_walker,
-                    'modified',
-                    self._update_views
-                )
-
-            # Decode the current packet and update the signal decoded column
-            # accordingly
-            signal_values_decoded = message.decode(
-                self._current_data.focused_packet.data
-            )
-
-            for index, signal in enumerate(map(lambda x: x[0], sorted(
-                signal_letter_mapping.items(),
-                key=lambda x: x[1]
-            ))):
-                index += 1 # To account for the header row
-
-                row = self._signal_table_walker[index] # type: urwid.Columns
-
-                decoded_column_index = \
-                    cls \
-                        .TABLE_COLUMN_LABELS \
-                        .index(cls.DECODED_COLUMN_LABEL)
-
-                decoded_text = row.contents[decoded_column_index][0] # type: urwid.Text
-                decoded_text.set_text("{} {}".format(
-                    signal_values_decoded[signal.name],
-                    signal.unit or ""
-                ))
-
-    def _build_table_row(self, message, signal, letter):
-        # type: (Message, Signal, str) -> urwid.Columns
-        cls = self.__class__
-
-        # TODO: Verify all inputs
-
-        def message_updated(message):
-            # type: (Message) -> None
-            message.refresh(strict=True)
-            self._update_views()
-
-        # Label
-        def update_signal_label(message, signal, widget, text):
-            # type: (Message, Signal, urwid.Edit, str) -> None
-            signal.name = text
-            message_updated(message)
-
-        signal_label_edit = urwid.Edit(edit_text=signal.name, wrap='clip')
-        urwid.connect_signal(signal_label_edit, 'change',
-                             update_signal_label, weak_args=(message, signal))
-        
-        # Signed?
-        def update_signal_signed(message, signal, widget, checked):
-            # type: (Message, Signal, urwid.Checkbox, bool) -> None
-            widget.set_label("yes" if checked else "no")
-            signal.is_signed = checked
-            message_updated(message)
-
-        signal_signed_checkbox = urwid.CheckBox(
-            "yes" if signal.is_signed else "no",
-            state=signal.is_signed
-        )
-        urwid.connect_signal(signal_signed_checkbox, 'change',
-                             update_signal_signed, weak_args=(message, signal))
-        
-        # Float?
-        def update_signal_float(message, signal, widget, checked): # TODO: Update the other inputs accurdingly
-            # type: (Message, Signal, urwid.Checkbox, bool) -> None
-            widget.set_label("yes" if checked else "no")
-            signal.is_float = checked
-            message_updated(message)
-
-        signal_float_checkbox = urwid.CheckBox(
-            "yes" if signal.is_float else "no",
-            state=signal.is_float
-        )
-        urwid.connect_signal(signal_float_checkbox, 'change',
-                             update_signal_float, weak_args=(message, signal))
-
-        # Offset
-        def update_signal_offset(message, signal, widget, old_text):
-            # type: (Message, Signal, urwid.FloatEdit, str) -> None
-            signal.offset = widget.value() or 0 # TODO: Use decimal here?
-            message_updated(message)
-
-        signal_offset_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.offset,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_offset_edit, 'postchange',
-                             update_signal_offset, weak_args=(message, signal))
-
-        # Scale
-        def update_signal_scale(message, signal, widget, old_text):
-            # type: (Message, Signal, urwid.FloatEdit, str) -> None
-            signal.scale = widget.value() or 0 # TODO: Use decimal here?
-            message_updated(message)
-
-        signal_scale_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.scale,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_scale_edit, 'postchange',
-                             update_signal_scale, weak_args=(message, signal))
-
-        # Minimum
-        def update_signal_minimum(message, signal, widget, old_text):
-            # type: (Message, Signal, urwid.FloatEdit, str) -> None
-            signal.minimum = widget.value() or 0 # TODO: Use decimal here?
-            message_updated(message)
-
-        signal_minimum_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.minimum,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_minimum_edit, 'postchange',
-                             update_signal_minimum, weak_args=(message, signal))
-
-        # Maximum
-        def update_signal_maximum(message, signal, widget, old_text):
-            # type: (Message, Signal, urwid.FloatEdit, str) -> None
-            signal.maximum = widget.value() or 0 # TODO: Use decimal here?
-            message_updated(message)
-
-        signal_maximum_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.maximum,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_maximum_edit, 'postchange',
-                             update_signal_maximum, weak_args=(message, signal))
-
-        # Unit
-        def update_signal_unit(message, signal, widget, text):
-            # type: (Message, Signal, urwid.Edit, str) -> None
-            signal.unit = None if text == "" else text
-            message_updated(message)
-
-        signal_unit_edit = urwid.Edit(edit_text=signal.unit or "", wrap='clip')
-        urwid.connect_signal(signal_unit_edit, 'change',
-                             update_signal_unit, weak_args=(message, signal))
-
-        # Label -> Column mapping
-        column_widgets = {
-            cls.LETTER_COLUMN_LABEL: urwid.Text(letter),
-            cls.LABEL_COLUMN_LABEL: signal_label_edit,
-            cls.SIGNED_COLUMN_LABEL: signal_signed_checkbox,
-            cls.FLOAT_COLUMN_LABEL: signal_float_checkbox,
-            cls.OFFSET_COLUMN_LABEL: signal_offset_edit,
-            cls.SCALE_COLUMN_LABEL: signal_scale_edit,
-            cls.MINIMUM_COLUMN_LABEL: signal_minimum_edit,
-            cls.MAXIMUM_COLUMN_LABEL: signal_maximum_edit,
-            cls.UNIT_COLUMN_LABEL: signal_unit_edit,
-            cls.DECODED_COLUMN_LABEL: urwid.Text("")
-        }
-
-        # Table rows
-        return urwid.Columns([
-            (width, column_widgets[label]) for label, width in cls.TABLE_COLUMNS
-        ], dividechars=cls.TABLE_COLUMN_DIVIDECHARS)
