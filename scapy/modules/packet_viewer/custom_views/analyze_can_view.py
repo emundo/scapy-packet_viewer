@@ -7,7 +7,7 @@
 
 import binascii
 from collections import namedtuple
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from multiprocessing import Process, Queue
 import os
 from queue import Empty
@@ -21,7 +21,6 @@ from cantools.database.can import Database, Message, Signal
 import numpy as np
 from revdbc import analyze_identifier
 import urwid
-from urwid.numedit import FloatEdit
 
 from scapy.layers.can import CAN
 from scapy.packet import Packet
@@ -49,10 +48,64 @@ AnalysisResult = namedtuple("AnalysisResult", [
 ])
 
 
+class DecimalEdit(urwid.Edit):
+    urwid_signals = [ 'valuechange' ]
+
+    def __init__(self, caption="", initial=None, default=None, *args, **kwargs):
+        # type: (str, Optional[Decimal], Optional[Decimal]) -> None
+        cls = self.__class__
+
+        # Register urwid signals before doing anything else
+        urwid.register_signal(cls, cls.urwid_signals)
+
+        self._default = default
+
+        super(DecimalEdit, self).__init__(
+            caption,
+            "" if initial is None else str(initial),
+            *args,
+            **kwargs
+        )
+
+    def valid_char(self, ch):
+        # type: (str) -> boolean
+        return len(ch) == 1 and ch.upper() in "0123456789.-"
+
+    def keypress(self, size, key):
+        # type: (..., ...) -> ...
+        old_edit_text = self.edit_text
+        old_edit_pos = self.edit_pos
+
+        unhandled = super(DecimalEdit, self).keypress(size, key)
+        if unhandled is None:
+            # Check whether the text (still) parses as a decimal after applying
+            # the keypress and restore the previous text if it does not.
+            try:
+                self._emit('valuechange', self.value)
+            except InvalidOperation:
+                self.edit_text = old_edit_text
+                self.edit_pos = old_edit_pos
+
+        return unhandled
+
+    @property
+    def value(self):
+        # type: () -> Optional[Decimal]
+        edit_text = self.edit_text
+
+        # A special case that should be considered valid is just "-" in the
+        # input, which happens naturally when attempting to type a negative
+        # number from scratch. It is treated as -0 here.
+        if edit_text == "-":
+            edit_text = "-0"
+
+        return self._default if edit_text == "" else Decimal(edit_text)
+
+
 class SignalValueGraph(urwid.Pile):
     PALETTE = [
-        ("bar 1", "", "dark red"),
-        ("bar 2", "", "dark green")
+        ("bar 1", "", "dark blue"),
+        ("bar 2", "", "dark cyan")
     ]
 
     def __init__(self, data, minimum, maximum):
@@ -312,35 +365,29 @@ class SignalTableRow(urwid.Columns): # TODO: Heatmap column (?)
                              self._update_signal_float)
 
         # Offset
-        signal_offset_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.offset,
-            preserveSignificance=False
+        signal_offset_edit = DecimalEdit(
+            initial=signal.decimal.offset,
+            default=Decimal(0)
         )
-        urwid.connect_signal(signal_offset_edit, 'postchange',
+        urwid.connect_signal(signal_offset_edit, 'valuechange',
                              self._update_signal_offset)
 
         # Scale
-        signal_scale_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.scale,
-            preserveSignificance=False
+        signal_scale_edit = DecimalEdit(
+            initial=signal.decimal.scale,
+            default=Decimal(1)
         )
-        urwid.connect_signal(signal_scale_edit, 'postchange',
+        urwid.connect_signal(signal_scale_edit, 'valuechange',
                              self._update_signal_scale)
 
         # Minimum
-        signal_minimum_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.minimum,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_minimum_edit, 'postchange',
+        signal_minimum_edit = DecimalEdit(initial=signal.decimal.minimum)
+        urwid.connect_signal(signal_minimum_edit, 'valuechange',
                              self._update_signal_minimum)
 
         # Maximum
-        signal_maximum_edit = FloatEdit( # TODO: This doesn't work correctly :(
-            default=signal.decimal.maximum,
-            preserveSignificance=False
-        )
-        urwid.connect_signal(signal_maximum_edit, 'postchange',
+        signal_maximum_edit = DecimalEdit(initial=signal.decimal.maximum)
+        urwid.connect_signal(signal_maximum_edit, 'valuechange',
                              self._update_signal_maximum)
 
         # Unit
@@ -425,28 +472,28 @@ class SignalTableRow(urwid.Columns): # TODO: Heatmap column (?)
         self._signal.is_float = checked
         self._signal_updated()
 
-    def _update_signal_offset(self, widget, old_text):
-        # type: (urwid.FloatEdit, str) -> None
-        self._signal.decimal.offset = widget.value() or Decimal(0)
-        self._signal.offset = float(self._signal.decimal.offset)
+    def _update_signal_offset(self, widget, value):
+        # type: (DecimalEdit, Optional[Decimal]) -> None
+        self._signal.decimal.offset = value
+        self._signal.offset = float(value)
         self._signal_updated()
 
-    def _update_signal_scale(self, widget, old_text):
-        # type: (urwid.FloatEdit, str) -> None
-        self._signal.decimal.scale = widget.value() or Decimal(0)
-        self._signal.scale = float(self._signal.decimal.scale)
+    def _update_signal_scale(self, widget, value):
+        # type: (DecimalEdit, Optional[Decimal]) -> None
+        self._signal.decimal.scale = value
+        self._signal.scale = float(value)
         self._signal_updated()
 
-    def _update_signal_minimum(self, widget, old_text):
-        # type: (urwid.FloatEdit, str) -> None
-        self._signal.decimal.minimum = widget.value() or Decimal(0)
-        self._signal.minimum = float(self._signal.decimal.minimum)
+    def _update_signal_minimum(self, widget, value):
+        # type: (DecimalEdit, Optional[Decimal]) -> None
+        self._signal.decimal.minimum = value
+        self._signal.minimum = None if value is None else float(value)
         self._signal_updated()
 
-    def _update_signal_maximum(self, widget, old_text):
-        # type: (urwid.FloatEdit, str) -> None
-        self._signal.decimal.maximum = widget.value() or Decimal(0)
-        self._signal.maximum = float(self._signal.decimal.maximum)
+    def _update_signal_maximum(self, widget, value):
+        # type: (DecimalEdit, Optional[Decimal]) -> None
+        self._signal.decimal.maximum = value
+        self._signal.maximum = None if value is None else float(value)
         self._signal_updated()
 
     def _update_signal_unit(self, widget, old_text):
@@ -792,6 +839,17 @@ class AnalyzeCANView(DetailsView):
                     )
                 ))
 
+            if isinstance(result, Error):
+                # Display a popup with details (from the main thread)
+                self._emit(
+                    'msg_to_main_thread',
+                    'call',
+                    lambda: self._emit(
+                        'notification',
+                        "Analysis failed: {}".format(result.reason)
+                    )
+                )
+
             self._result_cache[identifier] = AnalysisResult(
                 packets=data.packets,
                 result=result
@@ -896,8 +954,6 @@ class AnalyzeCANView(DetailsView):
                         self._status_text.set_text("Analysis Failed{}".format(
                             " (obsolete)" if obsolete else ""
                         ))
-                        # TODO: Additional information about the failure
-                        # (via popup probably)
 
         # Update all DBC-related widgets
         message = self._get_message()
@@ -933,10 +989,17 @@ class AnalyzeCANView(DetailsView):
                 graph_minimum = focused_signal.minimum or min(graph_data)
                 graph_maximum = focused_signal.maximum or max(graph_data)
 
-                self._graph.original_widget = urwid.LineBox(
-                    SignalValueGraph(graph_data, graph_minimum, graph_maximum),
-                    "Data Over Time",
-                    lline="", rline="", bline="",
-                    blcorner="", brcorner="",
-                    trcorner=u"─", tlcorner=u"─"
-                )
+                try:
+                    self._graph.original_widget = urwid.LineBox(
+                        SignalValueGraph(
+                            graph_data,
+                            graph_minimum,
+                            graph_maximum
+                        ),
+                        "Data Over Time",
+                        lline="", rline="", bline="",
+                        blcorner="", brcorner="",
+                        trcorner=u"─", tlcorner=u"─"
+                    )
+                except:
+                    self._graph.original_widget = urwid.SolidFill("x")
