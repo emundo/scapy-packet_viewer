@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from enum import Enum, auto
 from multiprocessing import Process, Queue
 import os
 from queue import Empty
@@ -46,8 +47,6 @@ class DecimalEdit(urwid.Edit):
         *args, **kwargs
     ) -> None:
         cls = self.__class__
-
-        # Register urwid signals before doing anything else.
         urwid.register_signal(cls, cls.urwid_signals)
 
         self._default = default
@@ -94,8 +93,8 @@ class SignalValueGraph(urwid.Pile):
     def __init__(self, data: List[float], signal: Signal) -> None:
         # Use minimum and maximum as defined in the signal. If those are not defined, fall back to the minimum
         # and maximum values.
-        minimum = signal.minimum or min(data)
-        maximum = signal.maximum or max(data)
+        minimum = signal.minimum if signal.minimum is not None else min(data)
+        maximum = signal.maximum if signal.maximum is not None else max(data)
 
         # To be able to display positive and negative values, two bar graphs are created if needed.
         if minimum >= maximum:
@@ -304,6 +303,7 @@ class SignalTableRow(urwid.Columns):
         focused_packet: Optional[Packet] = None
     ) -> None:
         cls = self.__class__
+        urwid.register_signal(cls, cls.urwid_signals)
 
         self._message = message
         self._signal = signal
@@ -311,9 +311,6 @@ class SignalTableRow(urwid.Columns):
 
         self._focused_packet: Optional[Packet] = None
         self._decoded_value = urwid.Text("")
-
-        # Register urwid signals before doing anything else
-        urwid.register_signal(cls, cls.urwid_signals)
 
         # TODO: Verify all inputs
 
@@ -449,11 +446,9 @@ class SignalTable(urwid.ListBox):
 
     def __init__(self, message: Optional[Message] = None, focused_packet: Optional[Packet] = None) -> None:
         cls = self.__class__
+        urwid.register_signal(cls, cls.urwid_signals)
 
         self._message: Optional[Message] = None
-
-        # Register urwid signals before doing anything else
-        urwid.register_signal(cls, cls.urwid_signals)
 
         super().__init__(urwid.SimpleFocusListWalker([
             # Initialized with just the table header
@@ -516,6 +511,61 @@ class SignalTable(urwid.ListBox):
         return self.focus
 
 
+class GraphTab(Enum):
+    DataOverTime = auto()
+    Bitflips = auto()
+    Byteflips = auto()
+    BitflipCorrelation = auto()
+    ByteflipCorrelation = auto()
+
+    def __str__(self):
+        if self is GraphTab.DataOverTime:
+            return "Data Over Time"
+        if self is GraphTab.Bitflips:
+            return "Bitflips"
+        if self is GraphTab.Byteflips:
+            return "Byteflips"
+        if self is GraphTab.BitflipCorrelation:
+            return "Bitflip Correlation"
+        if self is GraphTab.ByteflipCorrelation:
+            return "Byteflip Correlation"
+
+
+class GraphTabs(urwid.Columns):
+    urwid_signals = [ 'selection_changed' ]
+
+    def __init__(self) -> None:
+        """
+        Note: selection_changed is not emitted for the initial selection.
+        """
+        cls = self.__class__
+        urwid.register_signal(cls, cls.urwid_signals)
+
+        # Get the list of tabs to provide
+        graph_tabs = list(GraphTab)
+
+        # Start by selecting the first tab (no signal will be emitted for this one)
+        self._graph_tab = graph_tabs[0]
+
+        radiobutton_list = []
+        super().__init__([
+            ('weight', 1, urwid.RadioButton(
+                radiobutton_list,
+                str(graph_tab),
+                on_state_change=lambda _, state, graph_tab=graph_tab: self._on_state_change(graph_tab, state)
+            )) for graph_tab in graph_tabs
+        ], dividechars=1)
+
+    def _on_state_change(self, graph_tab: GraphTab, state: bool) -> None:
+        if state:
+            self._graph_tab = graph_tab
+            urwid.emit_signal(self, 'selection_changed')
+
+    @property
+    def graph_tab(self) -> GraphTab:
+        return self._graph_tab
+
+
 class AnalyzeCANView(DetailsView):
     """
     Custom view exclusively for CAN packets which shows the results of the structural analysis as performed by
@@ -538,12 +588,14 @@ class AnalyzeCANView(DetailsView):
 
         self._ascii_art_text = urwid.Text("")
         self._graph = urwid.WidgetPlaceholder(urwid.SolidFill())
+        self._graph_tabs = GraphTabs()
         self._save_path_edit = urwid.Edit(edit_text=cls.DEFAULT_SAVE_PATH, wrap='clip')
         self._signal_table = SignalTable()
         self._status_text = urwid.Text("")
 
         urwid.connect_signal(self._signal_table, 'focus_changed', self._update_views)
         urwid.connect_signal(self._signal_table, 'message_updated', self._update_views)
+        urwid.connect_signal(self._graph_tabs, 'selection_changed', self._update_views)
 
         # Callback for the "Rerun Analysis" button
         def rerun_analysis(_):
@@ -579,23 +631,20 @@ class AnalyzeCANView(DetailsView):
                     ))
                 ]))
             ])),
-            (SignalTable.TABLE_WIDTH+1, urwid.Filler(
-                urwid.Padding(
-                    urwid.Pile([
-                        ('weight', 1, urwid.Padding(
-                            self._signal_table,
-                            align='left',
-                            width=SignalTable.TABLE_WIDTH
-                        )),
-                        ('pack', urwid.Divider()),
-                        ('weight', 1, self._graph)
-                    ]),
-                    align='center',
-                    right=1
-                ),
-                height=('relative', 100),
-                top=1,
-                bottom=1
+            (SignalTable.TABLE_WIDTH+1, urwid.Padding(
+                urwid.Pile([
+                    ('pack', urwid.Divider()),
+                    ('weight', 1, urwid.Padding(
+                        self._signal_table,
+                        align='left',
+                        width=SignalTable.TABLE_WIDTH
+                    )),
+                    ('pack', urwid.Divider()),
+                    ('pack', self._graph_tabs),
+                    ('weight', 1, self._graph)
+                ]),
+                align='center',
+                right=1
             ))
         ], dividechars=1, min_width=40))
 
@@ -823,15 +872,26 @@ class AnalyzeCANView(DetailsView):
                     None
                 ) for packet in self._current_data.packets ]
 
+                graph_tab = self._graph_tabs.graph_tab
+                graph = None
                 try:
-                    # TODO: Add "tabs" to the graph that allow switching between data-over-time, bit- and
-                    # byte-flip heatmaps and the bit-correlation heatmap.
-                    self._graph.original_widget = urwid.LineBox(
-                        SignalValueGraph(graph_data, focused_signal),
-                        "Data Over Time",
-                        lline="", rline="", bline="",
-                        blcorner="", brcorner="",
-                        trcorner=u"─", tlcorner=u"─"
-                    )
+                    if graph_tab is GraphTab.DataOverTime:
+                        graph = SignalValueGraph(graph_data, focused_signal)
+                    if graph_tab is GraphTab.Bitflips:
+                        graph = None # TODO
+                    if graph_tab is GraphTab.Byteflips:
+                        graph = None # TODO
+                    if graph_tab is GraphTab.BitflipCorrelation:
+                        graph = None # TODO
+                    if graph_tab is GraphTab.ByteflipCorrelation:
+                        graph = None # TODO
                 except:
-                    self._graph.original_widget = urwid.SolidFill("x")
+                    pass
+
+                self._graph.original_widget = urwid.LineBox(
+                    graph or urwid.SolidFill("X"),
+                    str(graph_tab),
+                    lline="", rline="", bline="",
+                    blcorner="", brcorner="",
+                    trcorner=u"─", tlcorner=u"─"
+                )
