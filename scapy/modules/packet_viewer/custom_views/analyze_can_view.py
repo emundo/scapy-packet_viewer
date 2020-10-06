@@ -165,8 +165,15 @@ class SignalValueGraph(urwid.Pile):
         positive_vscale = None
         negative_vscale = None
 
-        def label(y): # TODO: Round/limit the precision
-            return str(y)
+        minimum_label_precision = max(
+            signal.decimal.scale.as_tuple().exponent * -1,
+            signal.decimal.offset.as_tuple().exponent * -1,
+            0 # In case neither scale nor offset have any decimal places
+        )
+
+        def label(y):
+            # Give one extra digit of precision
+            return "{:.{precision}f}".format(y, precision=minimum_label_precision+1)
 
         if positive_scale is not None:
             positive_vscale_width = max(len(label(y)) for y in positive_scale)
@@ -818,7 +825,7 @@ class AnalyzeCANView(DetailsView):
 
                 try:
                     # TODO: Add "tabs" to the graph that allow switching between data-over-time, bit- and
-                    # byte-flip heatmaps and correlation heatmap.
+                    # byte-flip heatmaps and the bit-correlation heatmap.
                     self._graph.original_widget = urwid.LineBox(
                         SignalValueGraph(graph_data, focused_signal),
                         "Data Over Time",
