@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from cantools.database.can import Message, Signal
 from cantools.database.utils import start_bit

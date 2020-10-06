@@ -3,6 +3,7 @@ from enum import Enum, auto
 from multiprocessing import Process, Queue
 import os
 from queue import Empty
+import re
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -312,8 +313,6 @@ class SignalTableRow(urwid.Columns):
         self._focused_packet: Optional[Packet] = None
         self._decoded_value = urwid.Text("")
 
-        # TODO: Verify all inputs
-
         # Label
         signal_label_edit = urwid.Edit(edit_text=signal.name, wrap='clip')
         urwid.connect_signal(signal_label_edit, 'postchange', self._update_signal_label)
@@ -335,12 +334,20 @@ class SignalTableRow(urwid.Columns):
         urwid.connect_signal(signal_scale_edit, 'valuechange', self._update_signal_scale)
 
         # Minimum
-        signal_minimum_edit = DecimalEdit(initial=signal.decimal.minimum, wrap='clip')
-        urwid.connect_signal(signal_minimum_edit, 'valuechange', self._update_signal_minimum)
+        self._signal_minimum_edit = DecimalEdit(initial=signal.decimal.minimum, wrap='clip')
+        urwid.connect_signal(
+            self._signal_minimum_edit,
+            'valuechange',
+            lambda _widget, _value: self._update_signal_bounds()
+        )
 
         # Maximum
-        signal_maximum_edit = DecimalEdit(initial=signal.decimal.maximum, wrap='clip')
-        urwid.connect_signal(signal_maximum_edit, 'valuechange', self._update_signal_maximum)
+        self._signal_maximum_edit = DecimalEdit(initial=signal.decimal.maximum, wrap='clip')
+        urwid.connect_signal(
+            self._signal_maximum_edit,
+            'valuechange',
+            lambda _widget, _value: self._update_signal_bounds()
+        )
 
         # Unit
         signal_unit_edit = urwid.Edit(edit_text=signal.unit or "", wrap='clip')
@@ -354,8 +361,8 @@ class SignalTableRow(urwid.Columns):
             cls.FLOAT_COLUMN_LABEL: signal_float_checkbox,
             cls.OFFSET_COLUMN_LABEL: signal_offset_edit,
             cls.SCALE_COLUMN_LABEL: signal_scale_edit,
-            cls.MINIMUM_COLUMN_LABEL: signal_minimum_edit,
-            cls.MAXIMUM_COLUMN_LABEL: signal_maximum_edit,
+            cls.MINIMUM_COLUMN_LABEL: self._signal_minimum_edit,
+            cls.MAXIMUM_COLUMN_LABEL: self._signal_maximum_edit,
             cls.UNIT_COLUMN_LABEL: signal_unit_edit,
             cls.DECODED_COLUMN_LABEL: self._decoded_value
         }
@@ -388,6 +395,16 @@ class SignalTableRow(urwid.Columns):
     def letter(self) -> str:
         return self._letter
 
+    C_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,31}$")
+    @classmethod
+    def _validate_c_identifier(cls, text: str) -> bool:
+        return cls.C_IDENTIFIER_RE.match(text) is not None
+
+    @classmethod
+    def _validate_char_string(cls, text: str) -> bool:
+        # All printable characters except for '"' are allowed.
+        return text.isprintable() and '"' not in text
+
     def _signal_updated(self) -> None:
         # Refresh and re-validate the message
         self._message.refresh(strict=True)
@@ -398,8 +415,19 @@ class SignalTableRow(urwid.Columns):
         urwid.emit_signal(self, 'message_updated')
     
     def _update_signal_label(self, widget: urwid.Edit, old_text: str) -> None:
-        self._signal.name = widget.edit_text
-        self._signal_updated()
+        text = widget.edit_text
+
+        # An empty label is a special case, as it has to be possible to fully delete a label before typing a
+        # new one, but an empty label is obviously invalid. The (slightly hacky) solution chosen here is to
+        # assume the (valid) signal name "__empty__" instead of an empty label.
+        if text == "":
+            text = "__empty__"
+
+        if self._validate_c_identifier(text):
+            self._signal.name = text
+            self._signal_updated()
+        else:
+            widget.edit_text = old_text
 
     def _update_signal_signed(self, widget: urwid.CheckBox, old_checked: bool) -> None:
         checked = widget.get_state()
@@ -408,6 +436,8 @@ class SignalTableRow(urwid.Columns):
         self._signal_updated()
 
     def _update_signal_float(self, widget: urwid.CheckBox, old_checked: bool) -> None:
+        # TODO: Float signals are kind of a mystery. What about minimum/maximum/scale/offset/signedness etc.
+        # when dealing with float signals?
         checked = widget.get_state()
         widget.set_label("yes" if checked else "no")
         self._signal.is_float = checked
@@ -423,20 +453,27 @@ class SignalTableRow(urwid.Columns):
         self._signal.scale = float(value)
         self._signal_updated()
 
-    def _update_signal_minimum(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
-        self._signal.decimal.minimum = value
-        self._signal.minimum = None if value is None else float(value)
-        self._signal_updated()
+    def _update_signal_bounds(self) -> None:
+        minimum = self._signal_minimum_edit.value
+        maximum = self._signal_maximum_edit.value
 
-    def _update_signal_maximum(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
-        self._signal.decimal.maximum = value
-        self._signal.maximum = None if value is None else float(value)
-        self._signal_updated()
+        # Only update the signal's bounds if the minimum is smaller thatn the maximum (or one of both is not
+        # defined).
+        if minimum is None or maximum is None or minimum < maximum:
+            self._signal.decimal.minimum = minimum
+            self._signal.decimal.maximum = maximum
+            self._signal.minimum = None if minimum is None else float(minimum)
+            self._signal.maximum = None if maximum is None else float(maximum)
+            self._signal_updated()
 
     def _update_signal_unit(self, widget: urwid.Edit, old_text: str) -> None:
         text = widget.edit_text
-        self._signal.unit = None if text == "" else text
-        self._signal_updated()
+
+        if self._validate_char_string(text):
+            self._signal.unit = None if text == "" else text
+            self._signal_updated()
+        else:
+            widget.edit_text = old_text
 
 
 class SignalTable(urwid.ListBox):
