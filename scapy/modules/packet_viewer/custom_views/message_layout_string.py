@@ -1,11 +1,9 @@
-from typing import Tuple, Dict
+from typing import Dict, Optional, Tuple
 
-from cantools.database.can.message import Message
-from cantools.database.can.signal import Signal
+from cantools.database.can import Message, Signal
 from cantools.database.utils import start_bit
 
-def get_signal_letter_mapping(message):
-    # type: (Message) -> Dict[Signal, str]
+def get_signal_letter_mapping(message: Message) -> Dict[Signal, str]:
     """
     Assign each signal of a message a unique letter. The order in which letters
     are assigned to signals is based on the order in which the signals are given
@@ -20,7 +18,7 @@ def get_signal_letter_mapping(message):
     """
 
     # Mapping between signals and signal letters
-    signal_letter_mapping = {} # type: Dict[Signal, str]
+    signal_letter_mapping: Dict[Signal, str] = {}
 
     # Populate the mappings
     next_signal_letter_ord = ord('a')
@@ -31,22 +29,18 @@ def get_signal_letter_mapping(message):
     
     return signal_letter_mapping
 
-def message_layout_string(message, highlight=None):
-    # type: (Message, Optional[str]) -> str
+def message_layout_string(message: Message, highlight: Optional[str] = None) -> str:
     """
-    This is a copy of the cantools.database.can.message.Message.layout_string
-    method, adjusted to the needs of the AnalyzeCANView.
+    This is a copy of the Message.layout_string method, adjusted to the needs of the AnalyzeCANView.
 
-    The output of the original layout_string method (using signal_names=True),
-    given a DBC message that consists of 8 bytes and has many signals, is too
-    tall (in lines) for the AnalyzeCANView. Setting signal_names=False is not a
-    solution, as some sort of association between signals in the ASCII-art and
+    The output of the original layout_string method (using signal_names=True), given a DBC message that
+    consists of 8 bytes and has many signals, is too tall (in lines) for the AnalyzeCANView. Setting
+    signal_names=False is not a solution, as some sort of association between signals in the ASCII-art and
     signal names is needed.
 
-    This copy of the layout_string method is adjusted to label signals right in
-    the signal ASCII-art, using lowercase letters from 'a' to 'z' in place of
-    the original signal-starting x's. The mapping between the letters and the
-    signals is obtained by calling `get_signal_letter_mapping`.
+    This copy of the layout_string method is adjusted to label signals right in the signal ASCII-art, using
+    lowercase letters from 'a' to 'z' in place of the original signal-starting x's. The mapping between the
+    letters and the signals is obtained by calling `get_signal_letter_mapping`.
 
     Args:
         message: The message to format.
@@ -75,10 +69,7 @@ def message_layout_string(message, highlight=None):
             dash = '=' if signal_letter == highlight else '-'
 
             formatted = start_bit(signal) * '   '
-            formatted += '<{}{}'.format(
-                (3 * signal.length - 2) * dash,
-                signal_letter
-            )
+            formatted += '<{}{}'.format((3 * signal.length - 2) * dash, signal_letter)
             signals.append(formatted)
 
         return signals
@@ -96,19 +87,13 @@ def message_layout_string(message, highlight=None):
             dash = '=' if signal_letter == highlight else '-'
 
             formatted = signal.start * '   '
-            formatted += '{}{}<'.format(
-                signal_letter,
-                (3 * signal.length - 2) * dash
-            )
+            formatted += '{}{}<'.format(signal_letter, (3 * signal.length - 2) * dash)
             end = signal.start + signal.length
 
             if end % 8 != 0:
                 formatted += (8 - (end % 8)) * '   '
 
-            formatted = ''.join([
-                formatted[i:i + 24][::-1]
-                for i in range(0, len(formatted), 24)
-            ])
+            formatted = ''.join(formatted[i:i + 24][::-1] for i in range(0, len(formatted), 24))
             signals.append(formatted)
 
         return signals
@@ -118,14 +103,12 @@ def message_layout_string(message, highlight=None):
         signals = format_big() + format_little()
 
         if len(signals) > 0:
-            length = max([len(signal) for signal in signals])
+            length = max(len(signal) for signal in signals)
 
             if length % 24 != 0:
                 length += (24 - (length % 24))
 
-            signals = [
-                signal + (length - len(signal)) * ' ' for signal in signals
-            ]
+            signals = [ signal + (length - len(signal)) * ' ' for signal in signals ]
 
         # Signals union line.
         signals_union = ''
@@ -151,13 +134,9 @@ def message_layout_string(message, highlight=None):
 
         # Split the signals union line into byte lines, 8 bits per
         # line.
-        byte_lines = [
-            signals_union[i:i + 24]
-            for i in range(0, len(signals_union), 24)
-        ]
+        byte_lines = [ signals_union[i:i+24] for i in range(0, len(signals_union), 24) ]
 
         unused_byte_lines = (message._length - len(byte_lines))
-
         if unused_byte_lines > 0:
             byte_lines += unused_byte_lines * [24 * ' ']
 
@@ -229,7 +208,7 @@ def message_layout_string(message, highlight=None):
         number_of_matrix_lines = (len(lines) - 3)
 
         if number_of_matrix_lines < 5:
-            lines += (5 - number_of_matrix_lines) * ['     ']
+            lines += (5 - number_of_matrix_lines) * [ '     ' ]
 
         start_index = 4 + ((number_of_matrix_lines - 4) // 2 - 1)
 
@@ -237,20 +216,17 @@ def message_layout_string(message, highlight=None):
         # of rows required for the "Bit" label
         start_index = max(start_index, 0)
 
-        axis_lines = start_index * ['  ']
-        axis_lines += [' B', ' y', ' t', ' e']
-        axis_lines += (len(lines) - start_index - 4) * ['  ']
+        axis_lines = start_index * [ '  ' ]
+        axis_lines += [ ' B', ' y', ' t', ' e' ]
+        axis_lines += (len(lines) - start_index - 4) * [ '  ' ]
 
-        return [
-            axis_line + line
-            for axis_line, line in zip(axis_lines, lines)
-        ]
+        return [ axis_line + line for axis_line, line in zip(axis_lines, lines) ]
 
     # All signal name labelling code was removed.
     lines, _, number_width = format_byte_lines()
     lines = add_horizontal_lines(lines, number_width)
     lines = add_header_lines(lines, number_width)
     lines = add_y_axis_name(lines)
-    lines = [line.rstrip() for line in lines]
+    lines = [ line.rstrip() for line in lines ]
 
     return '\n'.join(lines)
