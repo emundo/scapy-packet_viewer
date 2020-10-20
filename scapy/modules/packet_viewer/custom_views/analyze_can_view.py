@@ -258,6 +258,119 @@ class SignalValueGraph(urwid.Pile):
         super().__init__(pile_contents)
 
 
+class SimpleBarGraph(urwid.Pile):
+    PALETTE = [
+        ("cold 1", "", "dark blue"),
+        ("cold 2", "", "dark cyan"),
+        ("hot 1", "", "dark red"),
+        ("hot 2", "", "light red"),
+        ("hot 3", "", "yellow")
+    ]
+
+    def __init__(self,
+        data: List[float],
+        xlabel: str,
+        ylabel: str,
+        xmin: int,
+        xmax: int,
+        ymax: float,
+        num_x_labels: int = 4,
+        yprecision: int = 2,
+        is_heatmap: bool = False
+    ) -> None:
+        if num_x_labels < 2:
+            raise ValueError("A minimum of two x axis labels are required.")
+
+        self._xmin = xmin
+        self._xmax = xmax
+        self._num_x_labels = num_x_labels
+
+        self._xaxis_pointers = urwid.Columns([])
+        self._xaxis_labels = urwid.Columns([])
+
+        xaxis_height = 3
+        xaxis = urwid.Pile([
+            ('pack', self._xaxis_pointers),
+            ('pack', self._xaxis_labels),
+            ('pack', urwid.Text(xlabel, align='center'))
+        ])
+
+        def label(y):
+            return "{:.{precision}f}".format(y, precision=yprecision)
+
+        yscale = [ ymax * 0.0, ymax * 0.2, ymax * 0.4, ymax * 0.6, ymax * 0.8, ymax * 1.0 ]
+        yaxis_width = max(len(label(y)) for y in yscale) + 2
+        yaxis = urwid.Columns([
+            (1, urwid.Filler(urwid.Text(ylabel))),
+            (yaxis_width - 2, urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax))
+        ], dividechars=1)
+
+        graph_data = []
+
+        if is_heatmap:
+            palette = [ "", "hot 1", "hot 2", "hot 3" ]
+
+            # TODO
+        else:
+            palette = [ "", "cold 1", "cold 2" ]
+
+            for index, element in enumerate(data):
+                if index % 2 == 0:
+                    graph_data.append((element, 0))
+                else:
+                    graph_data.append((0, element))
+
+        graph = urwid.BarGraph(palette, hatt=palette)
+        graph.set_data(graph_data, ymax, yscale)
+
+        super().__init__([
+            ('weight', 1, urwid.Columns([
+                (yaxis_width, yaxis),
+                ('weight', 1, graph)
+            ], dividechars=1)),
+            (xaxis_height, urwid.Columns([
+                (yaxis_width, urwid.SolidFill()),
+                ('weight', 1, xaxis)
+            ], dividechars=1))
+        ])
+
+    def render(self, size, focus):
+        # Hook into the render method and fill x axis pointers/arrows based on the size passed here
+        width = size[0]
+
+        # The labels at xmin and xmax are always drawn at the left and right edges of the axis. The remaining
+        # labels are drawn in between.
+        num_additional_x_labels = self._num_x_labels - 2
+
+        # Calculate the absolute positions of all labels
+        x_label_positions = [ 0 ] + [
+            round((width * i) / (num_additional_x_labels + 1)) for i in range(num_additional_x_labels)
+        ] + [ width - 1 ]
+
+        used_width = 0
+        pointer_columns = []
+
+        for x_label_position in x_label_positions:
+            column_content_width = 1
+            column_padding_left = max(x_label_position - used_width, 0)
+            column_width = column_padding_left + column_content_width
+
+            pointer_columns.append((urwid.Padding(
+                urwid.Text("^"),
+                align='right',
+                width=column_content_width,
+                min_width=column_content_width,
+                left=column_padding_left,
+                right=0
+            ), urwid.Columns.options(width_type='given', width_amount=column_width)))
+
+            used_width += column_width
+
+        self._xaxis_pointers.contents = pointer_columns
+
+        return super().render(size, focus)
+
+
 class SignalTableRow(urwid.Columns):
     urwid_signals = [ 'message_updated' ]
 
@@ -610,7 +723,7 @@ class AnalyzeCANView(DetailsView):
     """
 
     action_name = "Analyze CAN"
-    palette = SignalValueGraph.PALETTE
+    palette = SignalValueGraph.PALETTE + SimpleBarGraph.PALETTE
 
     RERUN_ANALYSIS_BUTTON_LABEL = "Rerun Analysis"
     SAVE_BUTTON_LABEL = "Save DBC to:"
@@ -914,14 +1027,46 @@ class AnalyzeCANView(DetailsView):
                 try:
                     if graph_tab is GraphTab.DataOverTime:
                         graph = SignalValueGraph(graph_data, focused_signal)
+
                     if graph_tab is GraphTab.Bitflips:
-                        graph = None # TODO
+                        graph = SimpleBarGraph(
+                            graph_data[:64],
+                            "Bit Position",
+                            "Total\xA0Flips",
+                            0,
+                            63,
+                            max(graph_data[:64])
+                        ) # TODO
+
                     if graph_tab is GraphTab.Byteflips:
-                        graph = None # TODO
+                        graph = SimpleBarGraph(
+                            graph_data[:32],
+                            "Byte Position",
+                            "Total\xA0Flips",
+                            0,
+                            7, # TODO
+                            max(graph_data[:32])
+                        ) # TODO
+
                     if graph_tab is GraphTab.BitflipCorrelation:
-                        graph = None # TODO
+                        graph = SimpleBarGraph(
+                            graph_data[:16],
+                            "Inter-Bit Position",
+                            "Flip\xA0Correlation",
+                            1,
+                            63,
+                            max(graph_data[:16])
+                        ) # TODO
+
                     if graph_tab is GraphTab.ByteflipCorrelation:
-                        graph = None # TODO
+                        graph = SimpleBarGraph(
+                            graph_data,
+                            "Inter-Byte Position",
+                            "Flip\xA0Correlation",
+                            1,
+                            7, # TODO
+                            max(graph_data)
+                        ) # TODO
                 except:
                     pass
 
