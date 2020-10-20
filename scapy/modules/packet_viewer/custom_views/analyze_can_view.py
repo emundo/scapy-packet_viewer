@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 from enum import Enum, auto
+import math
 from multiprocessing import Process, Queue
 import os
 from queue import Empty
@@ -258,6 +259,99 @@ class SignalValueGraph(urwid.Pile):
         super().__init__(pile_contents)
 
 
+class XAxis(urwid.Pile):
+    def __init__(self, graph: urwid.BarGraph, label: str, min: int, num_bars: int, num_labels: int = 4):
+        if num_labels < 2:
+            raise ValueError("A minimum of two axis labels are required.")
+
+        self._graph = graph
+        self._min = min
+        self._num_bars = num_bars
+        self._num_labels = num_labels
+
+        self._pointers = urwid.Columns([])
+        self._labels = urwid.Columns([])
+
+        super().__init__([
+            ('pack', self._pointers),
+            ('pack', self._labels),
+            ('pack', urwid.Text(label, align='center'))
+        ])
+
+    def render(self, size, focus):
+        # Hook into the render method and fill pointers/labels based on the size passed here
+        bar_widths = self._graph.calculate_bar_widths(size, [ None ] * self._num_bars)
+        num_bars = len(bar_widths)
+        width = sum(bar_widths)
+
+        # The labels at min and max are always drawn at the left and right edges of the axis. The remaining
+        # labels are drawn in between.
+        num_additional_labels = self._num_labels - 2
+
+        # Find which bars will receive a label
+        labeled_bar_indizes = [ 0 ] + [
+            round((num_bars * i) / (num_additional_labels + 1)) for i in range(1, num_additional_labels + 1)
+        ] + [ num_bars - 1 ]
+
+        # Fill the pointer row
+        used_width = 0
+        pointer_columns = []
+
+        for label_bar_index in labeled_bar_indizes:
+            label_bar_position = sum(bar_widths[0:label_bar_index])
+
+            column_content_width = bar_widths[label_bar_index]
+            column_padding_left = max(label_bar_position - used_width, 0)
+            column_width = column_padding_left + column_content_width
+
+            pointer_columns.append((
+                urwid.Text("^" * column_content_width, align='right'),
+                urwid.Columns.options(width_type='given', width_amount=column_width)
+            ))
+
+            used_width += column_width
+
+        self._pointers.contents = pointer_columns
+
+        used_width = 0
+        label_columns = []
+
+        for label_bar_index in labeled_bar_indizes:
+            label_bar_position = sum(bar_widths[0:label_bar_index])
+
+            label = label_bar_index + self._min
+
+            column_content_width = len(str(label))
+            wanted_space_left = math.ceil((column_content_width - bar_widths[label_bar_index]) / 2)
+            wanted_space_right = math.floor((column_content_width - bar_widths[label_bar_index]) / 2)
+            remaining_space_left = max(label_bar_position - used_width, 0)
+            remaining_space_right = width - label_bar_position - 1
+            padding_left = remaining_space_left - wanted_space_left
+            padding_right = remaining_space_right - wanted_space_right
+
+            if padding_left < 0:
+                missing_padding = -padding_left
+                padding_left += missing_padding
+                padding_right -= missing_padding
+
+            if padding_right < 0:
+                missing_padding = -padding_right
+                padding_left -= missing_padding
+                padding_right += missing_padding
+
+            column_width = padding_left + column_content_width
+
+            label_columns.append((
+                urwid.Text(str(label), align='right'),
+                urwid.Columns.options(width_type='given', width_amount=column_width)
+            ))
+
+            used_width += column_width
+
+        self._labels.contents = label_columns
+
+        return super().render(size, focus)
+
 class SimpleBarGraph(urwid.Pile):
     PALETTE = [
         ("cold 1", "", "dark blue"),
@@ -271,39 +365,15 @@ class SimpleBarGraph(urwid.Pile):
         data: List[float],
         xlabel: str,
         ylabel: str,
-        xmin: int,
-        xmax: int,
         ymax: float,
         num_x_labels: int = 4,
         yprecision: int = 2,
         is_heatmap: bool = False
     ) -> None:
-        if num_x_labels < 2:
-            raise ValueError("A minimum of two x axis labels are required.")
-
-        self._xmin = xmin
-        self._xmax = xmax
-        self._num_x_labels = num_x_labels
-
-        self._xaxis_pointers = urwid.Columns([])
-        self._xaxis_labels = urwid.Columns([])
-
-        xaxis_height = 3
-        xaxis = urwid.Pile([
-            ('pack', self._xaxis_pointers),
-            ('pack', self._xaxis_labels),
-            ('pack', urwid.Text(xlabel, align='center'))
-        ])
-
         def label(y):
             return "{:.{precision}f}".format(y, precision=yprecision)
 
         yscale = [ ymax * 0.0, ymax * 0.2, ymax * 0.4, ymax * 0.6, ymax * 0.8, ymax * 1.0 ]
-        yaxis_width = max(len(label(y)) for y in yscale) + 2
-        yaxis = urwid.Columns([
-            (1, urwid.Filler(urwid.Text(ylabel))),
-            (yaxis_width - 2, urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax))
-        ], dividechars=1)
 
         graph_data = []
 
@@ -322,6 +392,15 @@ class SimpleBarGraph(urwid.Pile):
 
         graph = urwid.BarGraph(palette, hatt=palette)
         graph.set_data(graph_data, ymax, yscale)
+        
+        xaxis_height = 3
+        xaxis = XAxis(graph, xlabel, 0, len(data), num_x_labels)
+
+        yaxis_width = max(len(label(y)) for y in yscale) + 2
+        yaxis = urwid.Columns([
+            (1, urwid.Filler(urwid.Text(ylabel))),
+            (yaxis_width - 2, urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax))
+        ], dividechars=1)
 
         super().__init__([
             ('weight', 1, urwid.Columns([
@@ -333,42 +412,6 @@ class SimpleBarGraph(urwid.Pile):
                 ('weight', 1, xaxis)
             ], dividechars=1))
         ])
-
-    def render(self, size, focus):
-        # Hook into the render method and fill x axis pointers/arrows based on the size passed here
-        width = size[0]
-
-        # The labels at xmin and xmax are always drawn at the left and right edges of the axis. The remaining
-        # labels are drawn in between.
-        num_additional_x_labels = self._num_x_labels - 2
-
-        # Calculate the absolute positions of all labels
-        x_label_positions = [ 0 ] + [
-            round((width * i) / (num_additional_x_labels + 1)) for i in range(num_additional_x_labels)
-        ] + [ width - 1 ]
-
-        used_width = 0
-        pointer_columns = []
-
-        for x_label_position in x_label_positions:
-            column_content_width = 1
-            column_padding_left = max(x_label_position - used_width, 0)
-            column_width = column_padding_left + column_content_width
-
-            pointer_columns.append((urwid.Padding(
-                urwid.Text("^"),
-                align='right',
-                width=column_content_width,
-                min_width=column_content_width,
-                left=column_padding_left,
-                right=0
-            ), urwid.Columns.options(width_type='given', width_amount=column_width)))
-
-            used_width += column_width
-
-        self._xaxis_pointers.contents = pointer_columns
-
-        return super().render(size, focus)
 
 
 class SignalTableRow(urwid.Columns):
@@ -1033,8 +1076,6 @@ class AnalyzeCANView(DetailsView):
                             graph_data[:64],
                             "Bit Position",
                             "Total\xA0Flips",
-                            0,
-                            63,
                             max(graph_data[:64])
                         ) # TODO
 
@@ -1043,8 +1084,6 @@ class AnalyzeCANView(DetailsView):
                             graph_data[:32],
                             "Byte Position",
                             "Total\xA0Flips",
-                            0,
-                            7, # TODO
                             max(graph_data[:32])
                         ) # TODO
 
@@ -1053,8 +1092,6 @@ class AnalyzeCANView(DetailsView):
                             graph_data[:16],
                             "Inter-Bit Position",
                             "Flip\xA0Correlation",
-                            1,
-                            63,
                             max(graph_data[:16])
                         ) # TODO
 
@@ -1063,8 +1100,6 @@ class AnalyzeCANView(DetailsView):
                             graph_data,
                             "Inter-Byte Position",
                             "Flip\xA0Correlation",
-                            1,
-                            7, # TODO
                             max(graph_data)
                         ) # TODO
                 except:
