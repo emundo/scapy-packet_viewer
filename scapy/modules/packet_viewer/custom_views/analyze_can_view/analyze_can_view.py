@@ -19,7 +19,8 @@ import urwid
 from scapy.layers.can import CAN
 from scapy.packet import Packet
 from scapy.modules.packet_viewer.details_view import DetailsView
-import scapy.modules.packet_viewer.custom_views.message_layout_string as mls
+from . import message_layout_string as mls
+from . import utils
 
 class Data(NamedTuple):
     focused_packet: Packet
@@ -381,6 +382,11 @@ class XAxis(urwid.Pile):
             round((num_bars * i) / (num_additional_labels + 1)) for i in range(1, num_additional_labels + 1)
         ] + [ num_bars - 1 ]
 
+        # If fewer bars are available than the number of requested labels, drop those overflowing labels.
+        # Also if zero bars are available, the code above will add the index -1 to the list, which is removed
+        # here.
+        labeled_bars = sorted(filter(lambda x: x >= 0 and x < num_bars, set(labeled_bars)))
+
         # Fill the pointer row
         used_width = 0
         pointer_columns = []
@@ -462,11 +468,12 @@ class XAxis(urwid.Pile):
 class SimpleBarGraph(BarGraphContainer):
     PALETTE = [
         ("bar 1", "", "dark blue"),
-        ("bar 2", "", "dark cyan")
+        ("bar 2", "", "dark cyan"),
+        ("nan", "", "dark red")
     ]
 
     def __init__(self,
-        data: List[float],
+        data: List[Union[int, float]],
         xlabel: str,
         ylabel: str,
         ymax: float,
@@ -480,12 +487,15 @@ class SimpleBarGraph(BarGraphContainer):
 
         graph_data = []
         for index, element in enumerate(data):
-            if index % 2 == 0:
-                graph_data.append((element, 0))
+            if math.isnan(element):
+                graph_data.append((0, 0, ymax))
             else:
-                graph_data.append((0, element))
+                if index % 2 == 0:
+                    graph_data.append((element, 0, 0))
+                else:
+                    graph_data.append((0, element, 0))
 
-        graph = urwid.BarGraph([ "", "bar 1", "bar 2" ], hatt=[ "", "bar 1", "bar 2" ])
+        graph = urwid.BarGraph([ "", "bar 1", "bar 2", "nan" ], hatt=[ "", "bar 1", "bar 2", "nan" ])
         graph.set_data(graph_data, ymax, yscale)
         
         xaxis = XAxis(graph, xlabel, 0, len(data), num_x_labels)
@@ -679,9 +689,15 @@ class SignalTableRow(urwid.Columns):
         # TODO: Float signals are kind of a mystery. What about minimum/maximum/scale/offset/signedness etc.
         # when dealing with float signals?
         checked = widget.get_state()
-        widget.set_label("yes" if checked else "no")
-        self._signal.is_float = checked
-        self._signal_updated()
+
+        if checked and self._signal.length not in [ 16, 32, 64 ]:
+            # Block setting the float flag if the signal is not of the required bit length.
+            # TODO: Some info about the blocking for the user would be cool here
+            widget.set_state(False, do_callback=False)
+        else:
+            widget.set_label("yes" if checked else "no")
+            self._signal.is_float = checked
+            self._signal_updated()
 
     def _update_signal_offset(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
         self._signal.decimal.offset = value
@@ -791,21 +807,15 @@ class SignalTable(urwid.ListBox):
 class GraphTab(Enum):
     DataOverTime = auto()
     Bitflips = auto()
-    Byteflips = auto()
     BitflipCorrelation = auto()
-    ByteflipCorrelation = auto()
 
     def __str__(self):
         if self is GraphTab.DataOverTime:
             return "Data Over Time"
         if self is GraphTab.Bitflips:
             return "Bitflips"
-        if self is GraphTab.Byteflips:
-            return "Byteflips"
         if self is GraphTab.BitflipCorrelation:
             return "Bitflip Correlation"
-        if self is GraphTab.ByteflipCorrelation:
-            return "Byteflip Correlation"
 
 
 class GraphTabs(urwid.Columns):
@@ -826,11 +836,11 @@ class GraphTabs(urwid.Columns):
 
         radiobutton_list = []
         super().__init__([
-            ('weight', 1, urwid.RadioButton(
+            ('weight', 1, urwid.Padding(urwid.RadioButton(
                 radiobutton_list,
                 str(graph_tab),
                 on_state_change=lambda _, state, graph_tab=graph_tab: self._on_state_change(graph_tab, state)
-            )) for graph_tab in graph_tabs
+            ), align='center', width=len(str(graph_tab))+4)) for graph_tab in graph_tabs
         ], dividechars=1)
 
     def _on_state_change(self, graph_tab: GraphTab, state: bool) -> None:
@@ -1144,7 +1154,12 @@ class AnalyzeCANView(DetailsView):
             if focused_signal is None:
                 self._graph.original_widget = urwid.SolidFill()
             else:
-                graph_data = [ message.decode(packet.data, decode_choices=False).get(
+                decoded_values = [ message.decode(packet.data, decode_choices=False).get(
+                    focused_signal.name,
+                    None
+                ) for packet in self._current_data.packets ]
+
+                raw_values = [ message.decode(packet.data, decode_choices=False, scaling=False).get(
                     focused_signal.name,
                     None
                 ) for packet in self._current_data.packets ]
@@ -1153,39 +1168,29 @@ class AnalyzeCANView(DetailsView):
                 graph = None
                 try:
                     if graph_tab is GraphTab.DataOverTime:
-                        graph = SignalValueGraph(graph_data, focused_signal)
+                        graph = SignalValueGraph(decoded_values, focused_signal)
 
                     if graph_tab is GraphTab.Bitflips:
-                        graph = SimpleBarGraph(
-                            graph_data[:64],
-                            "Bit Position",
-                            "Total\xA0Flips",
-                            max(graph_data[:64])
-                        ) # TODO
+                        graph_data = utils.count_bit_flips(raw_values, focused_signal.length)
 
-                    if graph_tab is GraphTab.Byteflips:
-                        graph = SimpleBarGraph(
-                            graph_data[:32],
-                            "Byte Position",
-                            "Total\xA0Flips",
-                            max(graph_data[:32])
-                        ) # TODO
-
-                    if graph_tab is GraphTab.BitflipCorrelation:
-                        graph = SimpleBarGraph(
-                            graph_data[:16],
-                            "Inter-Bit Position",
-                            "Flip\xA0Correlation",
-                            max(graph_data[:16])
-                        ) # TODO
-
-                    if graph_tab is GraphTab.ByteflipCorrelation:
                         graph = SimpleBarGraph(
                             graph_data,
-                            "Inter-Byte Position",
+                            "Bit Position",
+                            "Total\xA0Flips",
+                            max(graph_data),
+                            yprecision=0
+                        )
+
+                    if graph_tab is GraphTab.BitflipCorrelation:
+                        graph_data = utils.calculate_bitflip_correlation(raw_values, focused_signal.length)
+
+                        graph = SimpleBarGraph(
+                            graph_data,
+                            "Inter-Bit Position",
                             "Flip\xA0Correlation",
-                            max(graph_data)
-                        ) # TODO
+                            1.0,
+                            yprecision=1
+                        )
                 except:
                     pass
 
