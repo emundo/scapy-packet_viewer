@@ -86,7 +86,41 @@ class DecimalEdit(urwid.Edit):
         return self._default if edit_text == "" else Decimal(edit_text)
 
 
-class SignalValueGraph(urwid.Pile):
+class BarGraphContainer(urwid.Pile):
+    def __init__(self,
+        graph: urwid.Widget,
+        xaxis: urwid.Widget,
+        xaxis_height: int,
+        yaxis: urwid.Widget,
+        yaxis_width: int
+    ):
+        super().__init__([
+            ('weight', 1, urwid.Columns([
+                (yaxis_width, yaxis),
+                ('weight', 1, graph)
+            ], dividechars=1)),
+            (xaxis_height, urwid.Columns([
+                (yaxis_width, urwid.SolidFill()),
+                ('weight', 1, urwid.Filler(xaxis))
+            ], dividechars=1))
+        ])
+
+
+class YAxisContainer(urwid.Columns):
+    def __init__(self, yaxis: urwid.Widget, yaxis_width: int, ylabel: str):
+        self._width = yaxis_width + 2
+
+        super().__init__([
+            (1, urwid.Filler(urwid.Text(ylabel))),
+            (yaxis_width, yaxis)
+        ], dividechars=1)
+
+    @property
+    def width(self):
+        return self._width
+
+
+class SignalValueGraph(BarGraphContainer):
     PALETTE = [
         ("bar 1", "", "dark blue"),
         ("bar 2", "", "dark cyan")
@@ -197,12 +231,16 @@ class SignalValueGraph(urwid.Pile):
         # is always set to height 0 while the other segment gets the actual bar height. That way, bars of
         # different colors can be created.
         positive_graph = None
+        positive_graph_data = None
+
         negative_graph = None
+        negative_graph_data = None
 
         if positive_scale is not None:
             positive_graph = urwid.BarGraph([ "", "bar 1", "bar 2" ], hatt=[ "", "bar 1", "bar 2" ])
-            positive_graph_data = []
+            positive_graph.set_bar_width(1)
 
+            positive_graph_data = []
             for index, element in enumerate(data):
                 element -= positive_offset
                 element = max(element, 0)
@@ -212,18 +250,13 @@ class SignalValueGraph(urwid.Pile):
                 else:
                     positive_graph_data.append((0, element))
 
-            positive_graph.set_data(
-                positive_graph_data,
-                positive_range,
-                [ y - positive_offset for y in positive_scale ]
-            )
-
         if negative_scale is not None:
             # The negative bar effect is achieved by first filling the whole bar with the desired color and
             # then overdrawing the bottom portion of the bar with the background color.
             negative_graph = urwid.BarGraph([ "", "bar 1", "bar 2", "" ], hatt=[ "", "bar 1", "bar 2", "" ])
-            negative_graph_data = []
+            negative_graph.set_bar_width(1)
 
+            negative_graph_data = []
             for index, element in enumerate(data):
                 element -= minimum
                 element = max(element, 0)
@@ -233,39 +266,88 @@ class SignalValueGraph(urwid.Pile):
                 else:
                     negative_graph_data.append((0, negative_range, element))
 
-            negative_graph.set_data(
-                negative_graph_data,
-                negative_range,
-                [ y - minimum for y in negative_scale ]
-            )
-
-        # Prepare the graphs and scales to be displayed together in a pile
-        pile_contents = []
+        # Prepare the graphs and scales to be displayed together in piles
+        graph_pile = []
+        yaxis_pile = []
+        any_graph = None
 
         if positive_graph is not None:
-            # Display the scale to the left of the graph
-            pile_contents.append(('weight', positive_range, urwid.Columns([
-                (vscales_width, positive_vscale),
-                ('weight', 1, positive_graph)
-            ], dividechars=1)))
+            any_graph = positive_graph
+            graph_pile.append(('weight', positive_range, positive_graph))
+            yaxis_pile.append(('weight', positive_range, positive_vscale))
 
         if negative_graph is not None:
-            # Display the scale to the left of the graph
-            pile_contents.append(('weight', negative_range, urwid.Columns([
-                (vscales_width, negative_vscale),
-                ('weight', 1, negative_graph)
-            ], dividechars=1)))
+            any_graph = negative_graph
+            graph_pile.append(('weight', negative_range, negative_graph))
+            yaxis_pile.append(('weight', negative_range, negative_vscale))
 
-        super().__init__(pile_contents)
+        xaxis = XAxis(any_graph, "Packet Number", 0, len(data))
+        yaxis = YAxisContainer(urwid.Pile(yaxis_pile), vscales_width, "Value")
+
+        offset = 0
+        offset_change = 32
+
+        def update():
+            if positive_graph is not None and positive_graph_data is not None:
+                positive_graph.set_data(
+                    positive_graph_data[offset:],
+                    positive_range,
+                    [ y - positive_offset for y in positive_scale ]
+                )
+
+            if negative_graph is not None and negative_graph_data is not None:
+                negative_graph.set_data(
+                    negative_graph_data[offset:],
+                    negative_range,
+                    [ y - minimum for y in negative_scale ]
+                )
+
+            xaxis.offset = offset
+
+        def scroll_left(_):
+            nonlocal offset
+
+            offset = max(offset - offset_change, 0)
+            update()
+
+        def scroll_right(_):
+            nonlocal offset
+
+            offset = min(offset + offset_change, len(data) - 1)
+            update()
+
+        update()
+
+        super().__init__(
+            urwid.Pile(graph_pile),
+            urwid.Pile([
+                ('weight', 1, xaxis),
+                ('pack', urwid.Columns([
+                    ('weight', 1, urwid.Padding(
+                        urwid.Button("scroll left", on_press=scroll_left),
+                        align='left',
+                        width=len("scroll left")+4
+                    )),
+                    ('weight', 1, urwid.Padding(
+                        urwid.Button("scroll right", on_press=scroll_right),
+                        align='right',
+                        width=len("scroll right")+4
+                    ))
+                ]))
+            ]),
+            xaxis.height + 1,
+            yaxis,
+            yaxis.width
+        )
 
 
 class XAxis(urwid.Pile):
-    def __init__(self, graph: urwid.BarGraph, label: str, min: int, num_bars: int, num_labels: int = 4):
+    def __init__(self, graph: urwid.BarGraph, label: str, offset: int, num_bars: int, num_labels: int = 4):
         if num_labels < 2:
             raise ValueError("A minimum of two axis labels are required.")
 
         self._graph = graph
-        self._min = min
+        self._offset = offset
         self._num_bars = num_bars
         self._num_labels = num_labels
 
@@ -279,17 +361,23 @@ class XAxis(urwid.Pile):
         ])
 
     def render(self, size, focus):
-        # Hook into the render method and fill pointers/labels based on the size passed here
-        bar_widths = self._graph.calculate_bar_widths(size, [ None ] * self._num_bars)
+        # Hook into the render method and fill pointers/labels dynamically based on the size passed here.
+
+        # calculate_bar_widths doesn't utilize the data at all, it only uses the number of bars
+        bar_widths = self._graph.calculate_bar_widths((size[0], self.height), [ None ] * self._num_bars)
+
+        # Get the number of bars that will be displayed by the bar chart and the overall number of columns
+        # that will be filled by those bars. Calculating those number this way is required, as configuration
+        # on the BarGraph instance can change those values. The actual available width is not relevant.
         num_bars = len(bar_widths)
         width = sum(bar_widths)
 
-        # The labels at min and max are always drawn at the left and right edges of the axis. The remaining
-        # labels are drawn in between.
+        # The labels at min and max are always drawn at the left and right edges of the axis. Additional
+        # labels are drawn in between with even spacing.
         num_additional_labels = self._num_labels - 2
 
-        # Find which bars will receive a label
-        labeled_bar_indizes = [ 0 ] + [
+        # Find the bars that will receive a label
+        labeled_bars = [ 0 ] + [
             round((num_bars * i) / (num_additional_labels + 1)) for i in range(1, num_additional_labels + 1)
         ] + [ num_bars - 1 ]
 
@@ -297,10 +385,11 @@ class XAxis(urwid.Pile):
         used_width = 0
         pointer_columns = []
 
-        for label_bar_index in labeled_bar_indizes:
-            label_bar_position = sum(bar_widths[0:label_bar_index])
+        for label_bar in labeled_bars:
+            # Find the position by summing up all bar widths up to the target bar
+            label_bar_position = sum(bar_widths[0:label_bar])
 
-            column_content_width = bar_widths[label_bar_index]
+            column_content_width = bar_widths[label_bar]
             column_padding_left = max(label_bar_position - used_width, 0)
             column_width = column_padding_left + column_content_width
 
@@ -313,17 +402,20 @@ class XAxis(urwid.Pile):
 
         self._pointers.contents = pointer_columns
 
+        # Fill the label row
         used_width = 0
         label_columns = []
 
-        for label_bar_index in labeled_bar_indizes:
-            label_bar_position = sum(bar_widths[0:label_bar_index])
+        for label_bar in labeled_bars:
+            # Find the position by summing up all bar widths up to the target bar
+            label_bar_position = sum(bar_widths[0:label_bar])
 
-            label = label_bar_index + self._min
+            label = str(label_bar + self._offset)
 
-            column_content_width = len(str(label))
-            wanted_space_left = math.ceil((column_content_width - bar_widths[label_bar_index]) / 2)
-            wanted_space_right = math.floor((column_content_width - bar_widths[label_bar_index]) / 2)
+            # Center the label below the pointer(s)
+            column_content_width = len(label)
+            wanted_space_left = math.ceil((column_content_width - bar_widths[label_bar]) / 2)
+            wanted_space_right = math.floor((column_content_width - bar_widths[label_bar]) / 2)
             remaining_space_left = max(label_bar_position - used_width, 0)
             remaining_space_right = width - label_bar_position - 1
             padding_left = remaining_space_left - wanted_space_left
@@ -342,7 +434,7 @@ class XAxis(urwid.Pile):
             column_width = padding_left + column_content_width
 
             label_columns.append((
-                urwid.Text(str(label), align='right'),
+                urwid.Text(label, align='right'),
                 urwid.Columns.options(width_type='given', width_amount=column_width)
             ))
 
@@ -350,15 +442,27 @@ class XAxis(urwid.Pile):
 
         self._labels.contents = label_columns
 
+        # Now that everything dynamic has been adjusted, render and return the canvas.
         return super().render(size, focus)
 
-class SimpleBarGraph(urwid.Pile):
+    @property
+    def height(self):
+        return 3
+    
+    @property
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, offset: int):
+        self._offset = offset
+        self._invalidate()
+
+
+class SimpleBarGraph(BarGraphContainer):
     PALETTE = [
-        ("cold 1", "", "dark blue"),
-        ("cold 2", "", "dark cyan"),
-        ("hot 1", "", "dark red"),
-        ("hot 2", "", "light red"),
-        ("hot 3", "", "yellow")
+        ("bar 1", "", "dark blue"),
+        ("bar 2", "", "dark cyan")
     ]
 
     def __init__(self,
@@ -367,8 +471,7 @@ class SimpleBarGraph(urwid.Pile):
         ylabel: str,
         ymax: float,
         num_x_labels: int = 4,
-        yprecision: int = 2,
-        is_heatmap: bool = False
+        yprecision: int = 2
     ) -> None:
         def label(y):
             return "{:.{precision}f}".format(y, precision=yprecision)
@@ -376,42 +479,23 @@ class SimpleBarGraph(urwid.Pile):
         yscale = [ ymax * 0.0, ymax * 0.2, ymax * 0.4, ymax * 0.6, ymax * 0.8, ymax * 1.0 ]
 
         graph_data = []
+        for index, element in enumerate(data):
+            if index % 2 == 0:
+                graph_data.append((element, 0))
+            else:
+                graph_data.append((0, element))
 
-        if is_heatmap:
-            palette = [ "", "hot 1", "hot 2", "hot 3" ]
-
-            # TODO
-        else:
-            palette = [ "", "cold 1", "cold 2" ]
-
-            for index, element in enumerate(data):
-                if index % 2 == 0:
-                    graph_data.append((element, 0))
-                else:
-                    graph_data.append((0, element))
-
-        graph = urwid.BarGraph(palette, hatt=palette)
+        graph = urwid.BarGraph([ "", "bar 1", "bar 2" ], hatt=[ "", "bar 1", "bar 2" ])
         graph.set_data(graph_data, ymax, yscale)
         
-        xaxis_height = 3
         xaxis = XAxis(graph, xlabel, 0, len(data), num_x_labels)
+        yaxis = YAxisContainer(
+            urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax),
+            max(len(label(y)) for y in yscale),
+            ylabel
+        )
 
-        yaxis_width = max(len(label(y)) for y in yscale) + 2
-        yaxis = urwid.Columns([
-            (1, urwid.Filler(urwid.Text(ylabel))),
-            (yaxis_width - 2, urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax))
-        ], dividechars=1)
-
-        super().__init__([
-            ('weight', 1, urwid.Columns([
-                (yaxis_width, yaxis),
-                ('weight', 1, graph)
-            ], dividechars=1)),
-            (xaxis_height, urwid.Columns([
-                (yaxis_width, urwid.SolidFill()),
-                ('weight', 1, xaxis)
-            ], dividechars=1))
-        ])
+        super().__init__(graph, xaxis, xaxis.height, yaxis, yaxis.width)
 
 
 class SignalTableRow(urwid.Columns):
