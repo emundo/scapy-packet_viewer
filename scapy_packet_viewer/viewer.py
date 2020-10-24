@@ -1,27 +1,23 @@
-import re
-
 from platform import platform
+import re
 from traceback import print_exc
-
-from urwid import MainLoop, connect_signal, raw_display
 from typing import Optional, Union, Iterable, List, Tuple, Callable, Dict, \
     Any, Type
 
+from urwid import MainLoop, connect_signal, raw_display
 from scapy.automaton import ObjectPipe
 from scapy.config import conf
-from scapy.modules.packet_viewer.details_view import DetailsView
 from scapy.packet import Packet_metaclass, Packet
 from scapy.supersocket import SuperSocket
 from scapy.themes import BlackAndWhite
 from scapy.plist import PacketList
 
-from scapy.modules.packet_viewer.edit_view import EditView
-from scapy.modules.packet_viewer.main_window import MainWindow
-from scapy.modules.packet_viewer.row_formatter import RowFormatter
-from scapy.modules.packet_viewer.pop_ups import show_question_pop_up, \
-    show_info_pop_up
-
-import scapy.modules.packet_viewer.column_configuration  # noqa: F401
+from . import column_configuration  # noqa: F401
+from .details_view import DetailsView
+from .edit_view import EditView
+from .main_window import MainWindow
+from .pop_ups import show_question_pop_up, show_info_pop_up
+from .row_formatter import RowFormatter
 
 
 class ScreenWSL(raw_display.Screen):

@@ -1,13 +1,8 @@
 import ast
-import struct
-
 from collections import OrderedDict
+import struct
 from typing import Union, Iterable, List, Type, Dict, Any, Optional, Tuple, \
     Callable
-
-from urwid import Frame, Pile, AttrMap, Text, ExitMainLoop, connect_signal, \
-    Widget
-from urwid.version import VERSION as URWID_VERSION
 
 from scapy.base_classes import Packet_metaclass
 from scapy.error import Scapy_Exception
@@ -15,11 +10,15 @@ from scapy.packet import Packet
 from scapy.plist import PacketList
 from scapy.sendrecv import AsyncSniffer
 from scapy.supersocket import SuperSocket
-from scapy.modules.packet_viewer.button_bar import ButtonBar, Action
-from scapy.modules.packet_viewer.packet_list_view import PacketListView
-from scapy.modules.packet_viewer.row_formatter import RowFormatter
-from scapy.modules.packet_viewer.extended_edit import ExtendedEdit
-from scapy.modules.packet_viewer.details_view import DetailsView
+from urwid import Frame, Pile, AttrMap, Text, ExitMainLoop, connect_signal, \
+    Widget
+from urwid.version import VERSION as URWID_VERSION
+
+from .button_bar import ButtonBar, Action
+from .details_view import DetailsView
+from .extended_edit import ExtendedEdit
+from .packet_list_view import PacketListView
+from .row_formatter import RowFormatter
 
 
 class MainWindow(Frame):

@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from typing import Tuple, Callable, List
+
 from urwid import AttrMap, Button, Columns, Text
 
 

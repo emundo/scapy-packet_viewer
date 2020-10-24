@@ -14,11 +14,11 @@ import cantools
 from cantools.database.can import Database, Message, Signal
 import numpy
 import revdbc
-import urwid
-
 from scapy.layers.can import CAN
 from scapy.packet import Packet
-from scapy.modules.packet_viewer.details_view import DetailsView
+import urwid
+
+from scapy_packet_viewer.details_view import DetailsView
 from . import message_layout_string as mls
 from . import utils
 

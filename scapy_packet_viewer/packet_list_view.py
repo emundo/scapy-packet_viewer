@@ -1,11 +1,12 @@
-from six import PY2
 from typing import List
+
+from scapy.packet import Packet
+from six import PY2
 from urwid import AttrMap, SimpleListWalker, CheckBox
 from urwid.version import VERSION as URWID_VERSION
 
-from scapy.packet import Packet
-from scapy.modules.packet_viewer.extended_listbox import ExtendedListBox
-from scapy.modules.packet_viewer.row_formatter import RowFormatter
+from .extended_listbox import ExtendedListBox
+from .row_formatter import RowFormatter
 
 
 class PacketListView(ExtendedListBox):

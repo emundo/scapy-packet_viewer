@@ -1,8 +1,5 @@
-import six
-
 from ast import literal_eval
 from typing import List, Type, Any, Union, Optional
-from urwid import Columns, SimpleListWalker, Text, connect_signal
 
 from scapy.base_classes import SetGen
 from scapy.config import conf
@@ -10,9 +7,12 @@ from scapy.fields import ConditionalField, Emph
 from scapy.packet import Packet
 from scapy.themes import BlackAndWhite
 from scapy.utils import hexdump
-from scapy.modules.packet_viewer.extended_listbox import ExtendedListBox
-from scapy.modules.packet_viewer.details_view import DetailsView
-from scapy.modules.packet_viewer.extended_edit import ExtendedEdit
+import six
+from urwid import Columns, SimpleListWalker, Text, connect_signal
+
+from .details_view import DetailsView
+from .extended_edit import ExtendedEdit
+from .extended_listbox import ExtendedListBox
 
 
 class EditView(DetailsView):

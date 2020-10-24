@@ -5,8 +5,7 @@ from typing import Callable, Dict, List, Tuple, Optional, Any
 from scapy.config import conf
 from scapy.packet import Packet, Packet_metaclass
 
-from scapy.modules.packet_viewer.column_configuration import payload_column, \
-    repr_column
+from .column_configuration import payload_column, repr_column
 
 
 class RowFormatter(object):

@@ -279,8 +279,8 @@ License: Apache License 2.0
 
 Library: Scapy
 Link: https://github.com/secdev/scapy
-Installation: via pip, package name: scapy; optional [basic] or [complete]
-    modifiers. See https://scapy.readthedocs.io/en/latest/installation.html
+Installation: via pip, package name: scapy; extras available.
+    See https://scapy.readthedocs.io/en/latest/installation.html
 Last update of this entry: 24th of October, 2020
 License: GNU General Public License v2.0
 

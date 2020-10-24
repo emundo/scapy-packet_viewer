@@ -1,4 +1,5 @@
 from typing import Any, Tuple
+
 from urwid import ListBox, Canvas
 
 

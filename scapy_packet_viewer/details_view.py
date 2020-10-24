@@ -1,7 +1,7 @@
 from typing import List, Tuple, Any
-from urwid import LineBox
 
 from scapy.packet import Packet
+from urwid import LineBox
 
 
 class DetailsView(LineBox):
