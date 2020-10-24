@@ -3,6 +3,7 @@ from typing import Dict, Optional
 from cantools.database.can import Message, Signal
 from cantools.database.utils import start_bit
 
+
 def get_signal_letter_mapping(message: Message) -> Dict[Signal, str]:
     """
     Assign each signal of a message a unique letter. The order in which letters
@@ -26,8 +27,9 @@ def get_signal_letter_mapping(message: Message) -> Dict[Signal, str]:
         next_signal_letter = chr(next_signal_letter_ord)
         signal_letter_mapping[signal] = next_signal_letter
         next_signal_letter_ord += 1
-    
+
     return signal_letter_mapping
+
 
 def message_layout_string(message: Message, highlight: Optional[str] = None) -> str:
     """
@@ -125,7 +127,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
             non_space_chars = list(filter(lambda char: char != ' ', chars))
 
             if head + dash + tail > 1:
-                signals_union += 'X' # TODO: This swallows tails
+                signals_union += 'X'  # TODO: This swallows tails
             else:
                 if len(non_space_chars) == 0:
                     signals_union += ' '
@@ -134,7 +136,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         # Split the signals union line into byte lines, 8 bits per
         # line.
-        byte_lines = [ signals_union[i:i+24] for i in range(0, len(signals_union), 24) ]
+        byte_lines = [ signals_union[i:(i + 24)] for i in range(0, len(signals_union), 24) ]
 
         unused_byte_lines = (message._length - len(byte_lines))
         if unused_byte_lines > 0:

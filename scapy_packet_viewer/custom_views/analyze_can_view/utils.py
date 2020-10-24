@@ -2,6 +2,7 @@ from typing import List
 
 import numpy as np
 
+
 def count_bit_flips(bodies: List[bytes], size: int) -> List[int]:
     """
     Args:

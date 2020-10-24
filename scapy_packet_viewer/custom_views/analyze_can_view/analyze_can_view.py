@@ -22,6 +22,7 @@ from scapy_packet_viewer.details_view import DetailsView
 from . import message_layout_string as mls
 from . import utils
 
+
 class Data(NamedTuple):
     focused_packet: Packet
     packets: List[Packet]
@@ -47,7 +48,8 @@ class DecimalEdit(urwid.Edit):
     edit_text: str
     edit_pos: int
 
-    def __init__(self,
+    def __init__(
+        self,
         caption: str = "",
         initial: Optional[Decimal] = None,
         default: Optional[Decimal] = None,
@@ -92,7 +94,8 @@ class DecimalEdit(urwid.Edit):
 
 
 class BarGraphContainer(urwid.Pile):
-    def __init__(self,
+    def __init__(
+        self,
         graph: urwid.Widget,
         xaxis: urwid.Widget,
         xaxis_height: int,
@@ -165,7 +168,7 @@ class SignalValueGraph(BarGraphContainer):
                 negative_offset - negative_range * 0.2,
                 negative_offset - negative_range * 0.0
             ]
-        
+
         if positive_range is not None and negative_range is None:
             # Only the positive range exists, divide it into five segments.
             positive_scale = [
@@ -210,12 +213,12 @@ class SignalValueGraph(BarGraphContainer):
         minimum_label_precision = max(
             signal.decimal.scale.as_tuple().exponent * -1,
             signal.decimal.offset.as_tuple().exponent * -1,
-            0 # In case neither scale nor offset have any decimal places
+            0  # In case neither scale nor offset have any decimal places
         )
 
         def label(y):
             # Give one extra digit of precision
-            return "{:.{precision}f}".format(y, precision=minimum_label_precision+1)
+            return "{:.{precision}f}".format(y, precision=(minimum_label_precision + 1))
 
         if positive_scale is not None:
             positive_vscale_width = max(len(label(y)) for y in positive_scale)
@@ -333,12 +336,12 @@ class SignalValueGraph(BarGraphContainer):
                     ('weight', 1, urwid.Padding(
                         urwid.Button("scroll left", on_press=scroll_left),
                         align='left',
-                        width=len("scroll left")+4
+                        width=(len("scroll left") + 4)
                     )),
                     ('weight', 1, urwid.Padding(
                         urwid.Button("scroll right", on_press=scroll_right),
                         align='right',
-                        width=len("scroll right")+4
+                        width=(len("scroll right") + 4)
                     ))
                 ]))
             ]),
@@ -460,7 +463,7 @@ class XAxis(urwid.Pile):
     @property
     def height(self):
         return 3
-    
+
     @property
     def offset(self):
         return self._offset
@@ -478,7 +481,8 @@ class SimpleBarGraph(BarGraphContainer):
         ("nan", "", "dark red")
     ]
 
-    def __init__(self,
+    def __init__(
+        self,
         data: Sequence[float],
         xlabel: str,
         ylabel: str,
@@ -503,7 +507,7 @@ class SimpleBarGraph(BarGraphContainer):
 
         graph = urwid.BarGraph([ "", "bar 1", "bar 2", "nan" ], hatt=[ "", "bar 1", "bar 2", "nan" ])
         graph.set_data(graph_data, ymax, yscale)
-        
+
         xaxis = XAxis(graph, xlabel, 0, len(data), num_x_labels)
         yaxis = YAxisContainer(
             urwid.GraphVScale([ (y, label(y)) for y in yscale ], ymax),
@@ -516,6 +520,8 @@ class SimpleBarGraph(BarGraphContainer):
 
 class SignalTableRow(urwid.Columns):
     urwid_signals = [ 'message_updated' ]
+
+    C_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,31}$")
 
     LETTER_COLUMN_LABEL = "Letter"
     LABEL_COLUMN_LABEL = "Label"
@@ -553,7 +559,8 @@ class SignalTableRow(urwid.Columns):
     TABLE_COLUMN_DIVIDECHARS = 2
     TABLE_ROW_WIDTH = (len(TABLE_COLUMNS) - 1) * TABLE_COLUMN_DIVIDECHARS + sum(w for _, w in TABLE_COLUMNS)
 
-    def __init__(self,
+    def __init__(
+        self,
         message: Message,
         signal: Signal,
         letter: str,
@@ -572,11 +579,11 @@ class SignalTableRow(urwid.Columns):
         # Label
         signal_label_edit = urwid.Edit(edit_text=signal.name, wrap='clip')
         urwid.connect_signal(signal_label_edit, 'postchange', self._update_signal_label)
-        
+
         # Signed?
         signal_signed_checkbox = urwid.CheckBox("yes" if signal.is_signed else "no", state=signal.is_signed)
         urwid.connect_signal(signal_signed_checkbox, 'postchange', self._update_signal_signed)
-        
+
         # Float?
         signal_float_checkbox = urwid.CheckBox("yes" if signal.is_float else "no", state=signal.is_float)
         urwid.connect_signal(signal_float_checkbox, 'postchange', self._update_signal_float)
@@ -651,7 +658,6 @@ class SignalTableRow(urwid.Columns):
     def letter(self) -> str:
         return self._letter
 
-    C_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,31}$")
     @classmethod
     def _validate_c_identifier(cls, text: str) -> bool:
         return cls.C_IDENTIFIER_RE.match(text) is not None
@@ -669,7 +675,7 @@ class SignalTableRow(urwid.Columns):
         self.update(self._focused_packet, force=True)
 
         urwid.emit_signal(self, 'message_updated')
-    
+
     def _update_signal_label(self, widget: urwid.Edit, old_text: str) -> None:
         text = widget.edit_text
 
@@ -774,7 +780,8 @@ class SignalTable(urwid.ListBox):
         # Simply forward the event
         urwid.emit_signal(self, 'message_updated')
 
-    def update(self,
+    def update(
+        self,
         message: Optional[Message],
         focused_packet: Optional[Packet] = None,
         force: bool = False
@@ -854,7 +861,7 @@ class GraphTabs(urwid.Columns):
                 radiobutton_list,
                 str(graph_tab),
                 on_state_change=lambda _, state, graph_tab=graph_tab: self._on_state_change(graph_tab, state)
-            ), align='center', width=len(str(graph_tab))+4)) for graph_tab in graph_tabs
+            ), align='center', width=len(str(graph_tab)) + 4)) for graph_tab in graph_tabs
         ], dividechars=1)
 
     def _on_state_change(self, graph_tab: GraphTab, state: bool) -> None:
@@ -916,7 +923,7 @@ class AnalyzeCANView(DetailsView):
                 ('pack', urwid.Divider()),
                 ('pack', urwid.Pile([
                     ('pack', urwid.Columns([
-                        (len(cls.SAVE_BUTTON_LABEL)+4, urwid.Button(
+                        (len(cls.SAVE_BUTTON_LABEL) + 4, urwid.Button(
                             cls.SAVE_BUTTON_LABEL,
                             on_press=lambda _: self._save()
                         )),
@@ -928,11 +935,11 @@ class AnalyzeCANView(DetailsView):
                             on_press=rerun_analysis
                         ),
                         align='left',
-                        width=len(cls.RERUN_ANALYSIS_BUTTON_LABEL)+4
+                        width=(len(cls.RERUN_ANALYSIS_BUTTON_LABEL) + 4)
                     ))
                 ]))
             ])),
-            (SignalTable.TABLE_WIDTH+1, urwid.Padding(
+            (SignalTable.TABLE_WIDTH + 1, urwid.Padding(
                 urwid.Pile([
                     ('pack', urwid.Divider()),
                     ('weight', 1, urwid.Padding(
@@ -1011,7 +1018,7 @@ class AnalyzeCANView(DetailsView):
     def _abort_analysis(self) -> None:
         if self._process is not None:
             self._process.terminate()
-            self._process.join() # Not sure if redundant
+            self._process.join()  # Not sure if redundant
 
     @staticmethod
     def _run_analysis(data: Data, result_queue: Queue) -> None:
@@ -1121,7 +1128,8 @@ class AnalyzeCANView(DetailsView):
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
                 # Create the file
-                with open(save_path, "x"): pass
+                with open(save_path, "x"):
+                    pass
 
                 # Save the messsage to the newly created file
                 cantools.database.dump_file(Database(messages=[ message ]), save_path, database_format='dbc')
@@ -1186,31 +1194,29 @@ class AnalyzeCANView(DetailsView):
 
                 graph_tab = self._graph_tabs.graph_tab
                 graph = None
-                try:
-                    if graph_tab is GraphTab.DataOverTime:
-                        graph = SignalValueGraph(decoded_values, focused_signal)
 
-                    if graph_tab is GraphTab.BitFlips:
-                        bit_flips = utils.count_bit_flips(raw_values, focused_signal.length)
+                if graph_tab is GraphTab.DataOverTime:
+                    graph = SignalValueGraph(decoded_values, focused_signal)
 
-                        graph = SimpleBarGraph(
-                            bit_flips,
-                            "Bit Position",
-                            "Total\xA0Flips",
-                            max(bit_flips),
-                            yprecision=0
-                        )
+                if graph_tab is GraphTab.BitFlips:
+                    bit_flips = utils.count_bit_flips(raw_values, focused_signal.length)
 
-                    if graph_tab is GraphTab.BitFlipCorrelation:
-                        graph = SimpleBarGraph(
-                            utils.calculate_bit_flip_correlation(raw_values, focused_signal.length),
-                            "Inter-Bit Position",
-                            "Flip\xA0Correlation",
-                            1.0,
-                            yprecision=1
-                        )
-                except:
-                    pass
+                    graph = SimpleBarGraph(
+                        bit_flips,
+                        "Bit Position",
+                        "Total\xA0Flips",
+                        max(bit_flips),
+                        yprecision=0
+                    )
+
+                if graph_tab is GraphTab.BitFlipCorrelation:
+                    graph = SimpleBarGraph(
+                        utils.calculate_bit_flip_correlation(raw_values, focused_signal.length),
+                        "Inter-Bit Position",
+                        "Flip\xA0Correlation",
+                        1.0,
+                        yprecision=1
+                    )
 
                 self._graph.original_widget = urwid.LineBox(
                     graph or urwid.SolidFill("X"),
