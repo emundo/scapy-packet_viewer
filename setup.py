@@ -1,16 +1,17 @@
 # pylint: disable=exec-used
 import os
+from typing import Dict, List, Union
 
 from setuptools import setup, find_packages
 
 source_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scapy_packet_viewer")
 
-version_scope = {}
+version_scope: Dict[str, Dict[str, str]] = {}
 with open(os.path.join(source_root, "version.py")) as f:
     exec(f.read(), version_scope)
 version = version_scope["__version__"]
 
-project_scope = {}
+project_scope: Dict[str, Dict[str, Union[str, List[str]]]] = {}
 with open(os.path.join(source_root, "project.py")) as f:
     exec(f.read(), project_scope)
 project = project_scope["project"]

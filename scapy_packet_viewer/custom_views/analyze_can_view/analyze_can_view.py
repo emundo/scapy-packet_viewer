@@ -8,7 +8,7 @@ import re
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import cantools
 from cantools.database.can import Database, Message, Signal
@@ -42,6 +42,10 @@ class AnalysisResult(NamedTuple):
 
 class DecimalEdit(urwid.Edit):
     urwid_signals = [ 'valuechange' ]
+
+    # Instance variable annotations for the untyped urwid.Edit class
+    edit_text: str
+    edit_pos: int
 
     def __init__(self,
         caption: str = "",
@@ -127,7 +131,7 @@ class SignalValueGraph(BarGraphContainer):
         ("bar 2", "", "dark cyan")
     ]
 
-    def __init__(self, data: List[float], signal: Signal) -> None:
+    def __init__(self, data: Sequence[float], signal: Signal) -> None:
         # Use minimum and maximum as defined in the signal. If those are not defined, fall back to the minimum
         # and maximum values.
         minimum = signal.minimum if signal.minimum is not None else min(data)
@@ -151,7 +155,7 @@ class SignalValueGraph(BarGraphContainer):
         positive_scale = None
         negative_scale = None
 
-        if positive_range is None:
+        if positive_range is None and negative_range is not None:
             # Only the negative range exists, divide it into five segments.
             negative_scale = [
                 negative_offset - negative_range * 1.0,
@@ -161,7 +165,8 @@ class SignalValueGraph(BarGraphContainer):
                 negative_offset - negative_range * 0.2,
                 negative_offset - negative_range * 0.0
             ]
-        elif negative_range is None:
+        
+        if positive_range is not None and negative_range is None:
             # Only the positive range exists, divide it into five segments.
             positive_scale = [
                 positive_offset + positive_range * 0.0,
@@ -171,7 +176,8 @@ class SignalValueGraph(BarGraphContainer):
                 positive_offset + positive_range * 0.8,
                 positive_offset + positive_range * 1.0
             ]
-        else:
+
+        if positive_range is not None and negative_range is not None:
             # Both ranges exist. Find the bigger one and divide it into three segments to find the step size.
             step_size = max(positive_range, negative_range) / 3
 
@@ -232,12 +238,12 @@ class SignalValueGraph(BarGraphContainer):
         # is always set to height 0 while the other segment gets the actual bar height. That way, bars of
         # different colors can be created.
         positive_graph = None
-        positive_graph_data = None
+        positive_graph_data: Optional[List[Tuple[float, float]]] = None
 
         negative_graph = None
-        negative_graph_data = None
+        negative_graph_data: Optional[List[Tuple[float, float, float]]] = None
 
-        if positive_scale is not None:
+        if positive_scale is not None and positive_range is not None:
             positive_graph = urwid.BarGraph([ "", "bar 1", "bar 2" ], hatt=[ "", "bar 1", "bar 2" ])
             positive_graph.set_bar_width(1)
 
@@ -251,7 +257,7 @@ class SignalValueGraph(BarGraphContainer):
                 else:
                     positive_graph_data.append((0, element))
 
-        if negative_scale is not None:
+        if negative_scale is not None and negative_range is not None:
             # The negative bar effect is achieved by first filling the whole bar with the desired color and
             # then overdrawing the bottom portion of the bar with the background color.
             negative_graph = urwid.BarGraph([ "", "bar 1", "bar 2", "" ], hatt=[ "", "bar 1", "bar 2", "" ])
@@ -473,7 +479,7 @@ class SimpleBarGraph(BarGraphContainer):
     ]
 
     def __init__(self,
-        data: List[Union[int, float]],
+        data: Sequence[float],
         xlabel: str,
         ylabel: str,
         ymax: float,
@@ -485,7 +491,7 @@ class SimpleBarGraph(BarGraphContainer):
 
         yscale = [ ymax * 0.0, ymax * 0.2, ymax * 0.4, ymax * 0.6, ymax * 0.8, ymax * 1.0 ]
 
-        graph_data = []
+        graph_data: List[Tuple[float, float, float]] = []
         for index, element in enumerate(data):
             if math.isnan(element):
                 graph_data.append((0, 0, ymax))
@@ -700,11 +706,19 @@ class SignalTableRow(urwid.Columns):
             self._signal_updated()
 
     def _update_signal_offset(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
+        if value is None:
+            # This can never happen, it is just here to satisfy the type checker.
+            value = Decimal(1)
+
         self._signal.decimal.offset = value
         self._signal.offset = float(value)
         self._signal_updated()
 
     def _update_signal_scale(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
+        if value is None:
+            # This can never happen, it is just here to satisfy the type checker.
+            value = Decimal(0)
+
         self._signal.decimal.scale = value
         self._signal.scale = float(value)
         self._signal_updated()
@@ -806,16 +820,16 @@ class SignalTable(urwid.ListBox):
 
 class GraphTab(Enum):
     DataOverTime = auto()
-    Bitflips = auto()
-    BitflipCorrelation = auto()
+    BitFlips = auto()
+    BitFlipCorrelation = auto()
 
     def __str__(self):
         if self is GraphTab.DataOverTime:
             return "Data Over Time"
-        if self is GraphTab.Bitflips:
-            return "Bitflips"
-        if self is GraphTab.BitflipCorrelation:
-            return "Bitflip Correlation"
+        if self is GraphTab.BitFlips:
+            return "Bit Flips"
+        if self is GraphTab.BitFlipCorrelation:
+            return "Bit Flip Correlation"
 
 
 class GraphTabs(urwid.Columns):
@@ -834,7 +848,7 @@ class GraphTabs(urwid.Columns):
         # Start by selecting the first tab (no signal will be emitted for this one)
         self._graph_tab = graph_tabs[0]
 
-        radiobutton_list = []
+        radiobutton_list: List[Any] = []
         super().__init__([
             ('weight', 1, urwid.Padding(urwid.RadioButton(
                 radiobutton_list,
@@ -981,7 +995,7 @@ class AnalyzeCANView(DetailsView):
         # blockingly waits for the process to terminate, followed by reading the result from the queue and
         # updating the UI.
 
-        result_queue = Queue()
+        result_queue: Queue = Queue()
 
         self._process = Process(target=self._run_analysis, args=(data, result_queue))
         self._process.start()
@@ -1042,9 +1056,15 @@ class AnalyzeCANView(DetailsView):
 
     def _wait_for_analysis(self, result_queue: Queue, data: Data) -> None:
         # WARNING: This runs in a different thread!
+
+        process = self._process
+        if process is None:
+            # Better safe than sorry
+            return
+
         identifier = data.focused_packet.identifier
 
-        self._process.join()
+        process.join()
         try:
             result = result_queue.get(False)
 
@@ -1082,7 +1102,7 @@ class AnalyzeCANView(DetailsView):
         identifier = self._current_data.focused_packet.identifier
         cached_result = self._result_cache.get(identifier, None)
 
-        if isinstance(cached_result.result, Success):
+        if cached_result is not None and isinstance(cached_result.result, Success):
             return cached_result.result.value.restored_dbc.get_message_by_frame_id(identifier)
 
         return None
@@ -1170,22 +1190,20 @@ class AnalyzeCANView(DetailsView):
                     if graph_tab is GraphTab.DataOverTime:
                         graph = SignalValueGraph(decoded_values, focused_signal)
 
-                    if graph_tab is GraphTab.Bitflips:
-                        graph_data = utils.count_bit_flips(raw_values, focused_signal.length)
+                    if graph_tab is GraphTab.BitFlips:
+                        bit_flips = utils.count_bit_flips(raw_values, focused_signal.length)
 
                         graph = SimpleBarGraph(
-                            graph_data,
+                            bit_flips,
                             "Bit Position",
                             "Total\xA0Flips",
-                            max(graph_data),
+                            max(bit_flips),
                             yprecision=0
                         )
 
-                    if graph_tab is GraphTab.BitflipCorrelation:
-                        graph_data = utils.calculate_bitflip_correlation(raw_values, focused_signal.length)
-
+                    if graph_tab is GraphTab.BitFlipCorrelation:
                         graph = SimpleBarGraph(
-                            graph_data,
+                            utils.calculate_bit_flip_correlation(raw_values, focused_signal.length),
                             "Inter-Bit Position",
                             "Flip\xA0Correlation",
                             1.0,

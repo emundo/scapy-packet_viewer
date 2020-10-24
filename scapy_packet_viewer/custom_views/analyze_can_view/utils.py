@@ -26,7 +26,7 @@ def count_bit_flips(bodies: List[bytes], size: int) -> List[int]:
     return tav.tolist()
 
 
-def calculate_bitflip_correlation(bodies: List[bytes], size: int) -> List[float]:
+def calculate_bit_flip_correlation(bodies: List[bytes], size: int) -> List[float]:
     """
     Args:
         bodies: The bodies to analyze.
