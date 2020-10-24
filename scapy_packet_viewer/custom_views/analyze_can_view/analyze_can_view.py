@@ -733,7 +733,7 @@ class SignalTableRow(urwid.Columns):
         minimum = self._signal_minimum_edit.value
         maximum = self._signal_maximum_edit.value
 
-        # Only update the signal's bounds if the minimum is smaller thatn the maximum (or one of both is not
+        # Only update the signal's bounds if the minimum is smaller than the maximum (or one of both is not
         # defined).
         if minimum is None or maximum is None or minimum < maximum:
             self._signal.decimal.minimum = minimum
@@ -1131,7 +1131,7 @@ class AnalyzeCANView(DetailsView):
                 with open(save_path, "x"):
                     pass
 
-                # Save the messsage to the newly created file
+                # Save the message to the newly created file
                 cantools.database.dump_file(Database(messages=[ message ]), save_path, database_format='dbc')
 
                 self._emit('notification', "File written.")
