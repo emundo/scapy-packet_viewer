@@ -18,20 +18,22 @@ project = project_scope["project"]
 with open("README.md") as f:
     long_description = f.read()
 
-classifiers = [ # TODO
+classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Education",
     "Intended Audience :: Information Technology",
     "Intended Audience :: Science/Research",
 
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
 
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.4",
-    "Programming Language :: Python :: 3.5",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.6",
     "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8"
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+
+    "Typing :: Typed"
 ]
 
 classifiers.extend(project["categories"])
@@ -52,11 +54,17 @@ setup(
     version = version["short"],
     long_description = long_description,
     long_description_content_type = "text/markdown",
-    license = "Apache 2.0", # TODO
+    license = "GPLv2",
     packages = find_packages(),
-    install_requires = [ # TODO
+    install_requires = [
+        "cantools>=35.3.0,<36",
+        "numpy>=1.19.2,<2",
+        "revdbc>=0.0.1,<0.1",
+        "scapy=>2.4.4,<3",
+        "six>=1.15.0,<2",
+        "urwid>=2.1.2,<3"
     ],
-    python_requires = ">=3.4",
+    python_requires = ">=3.6",
     zip_safe = False,
     classifiers = classifiers,
     **project
