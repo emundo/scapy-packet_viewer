@@ -1,0 +1,6 @@
+[flake8]
+max-line-length = 110
+ignore = E201, E202, F401
+per-file-ignores =
+  scapy_packet_viewer/project.py:E203,E221
+  scapy_packet_viewer/version.py:E203,E221
