@@ -6,10 +6,10 @@ Packet viewer for Scapy
 :Date: |today|
 
 .. toctree::
-   :caption: General
+    :caption: General
    
-   development
-   usage
+    development
+    usage
 
 .. toctree::
     :caption: API Reference
