@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from cantools.database.can import Message, Signal
 from cantools.database.utils import start_bit
@@ -6,10 +6,9 @@ from cantools.database.utils import start_bit
 
 def get_signal_letter_mapping(message: Message) -> Dict[Signal, str]:
     """
-    Assign each signal of a message a unique letter. The order in which letters
-    are assigned to signals is based on the order in which the signals are given
-    by message._signals. Should produce the same assignment every time given the
-    same message.
+    Assign each signal of a message a unique letter. The order in which letters are assigned to signals is
+    based on the order in which the signals are given by message._signals. Should produce the same assignment
+    every time given the same message.
 
     Args:
         message: The message.
@@ -58,15 +57,15 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
     # A string containing all signal letters for convenience
     all_signal_letters = ''.join(signal_letter_mapping.values())
 
-    def format_big():
+    def format_big() -> List[str]:
         signals = []
 
         for signal in message._signals:
             if signal.byte_order != 'big_endian':
                 continue
 
-            # Small modification here to use the signal letter for the tail
-            # instead of 'x' and use '=' instead of '-' for highlighted signals.
+            # Small modification here to use the signal letter for the tail instead of 'x' and use '=' instead
+            # of '-' for highlighted signals.
             signal_letter = signal_letter_mapping[signal]
             dash = '=' if signal_letter == highlight else '-'
 
@@ -76,15 +75,15 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         return signals
 
-    def format_little():
+    def format_little() -> List[str]:
         signals = []
 
         for signal in message._signals:
             if signal.byte_order != 'little_endian':
                 continue
 
-            # Small modification here to use the signal letter for the tail
-            # instead of 'x' and use '=' instead of '-' for highlighted signals.
+            # Small modification here to use the signal letter for the tail instead of 'x' and use '=' instead
+            # of '-' for highlighted signals.
             signal_letter = signal_letter_mapping[signal]
             dash = '=' if signal_letter == highlight else '-'
 
@@ -100,7 +99,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         return signals
 
-    def format_byte_lines():
+    def format_byte_lines() -> Tuple[List[str], int, int]:
         # Signal lines.
         signals = format_big() + format_little()
 
@@ -122,8 +121,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
             # Modified to detect signal letters as tails instead of 'x'
             tail = sum(chars.count(letter) for letter in all_signal_letters)
 
-            # Little modification of the original code to find the union char
-            # more easily
+            # Little modification of the original code to find the union char more easily
             non_space_chars = list(filter(lambda char: char != ' ', chars))
 
             if head + dash + tail > 1:
@@ -134,8 +132,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
                 else:
                     signals_union += non_space_chars[0]
 
-        # Split the signals union line into byte lines, 8 bits per
-        # line.
+        # Split the signals union line into byte lines, 8 bits per line.
         byte_lines = [ signals_union[i:(i + 24)] for i in range(0, len(signals_union), 24) ]
 
         unused_byte_lines = (message._length - len(byte_lines))
@@ -187,16 +184,15 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         return a, len(lines), number_width
 
-    def add_header_lines(lines, number_width):
-        # Modified to use less rows by moving the "Bit" label next to the
-        # numbers.
+    def add_header_lines(lines: List[str], number_width: int) -> List[str]:
+        # Modified to use less rows by moving the "Bit" label next to the numbers.
 
         return [
             "Bit".rjust(number_width, ' ') + '  7   6   5   4   3   2   1   0',
             number_width * ' ' + '+---+---+---+---+---+---+---+---+'
         ] + lines
 
-    def add_horizontal_lines(byte_lines, number_width):
+    def add_horizontal_lines(byte_lines: List[str], number_width: int) -> List[str]:
         padding = number_width * ' '
         lines = []
 
@@ -206,7 +202,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         return lines
 
-    def add_y_axis_name(lines):
+    def add_y_axis_name(lines: List[str]) -> List[str]:
         number_of_matrix_lines = (len(lines) - 3)
 
         if number_of_matrix_lines < 5:
@@ -214,8 +210,8 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
         start_index = 4 + ((number_of_matrix_lines - 4) // 2 - 1)
 
-        # Modified to start at 0 minimum instead of 4, due to the lower number
-        # of rows required for the "Bit" label
+        # Modified to start at 0 minimum instead of 4, due to the lower number of rows required for the "Bit"
+        # label
         start_index = max(start_index, 0)
 
         axis_lines = start_index * [ '  ' ]

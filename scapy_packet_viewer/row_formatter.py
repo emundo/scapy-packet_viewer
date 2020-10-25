@@ -1,6 +1,6 @@
 from collections import defaultdict
 from itertools import count
-from typing import Callable, Dict, List, Tuple, Optional, Any
+from typing import cast, Callable, Dict, List, Tuple, Optional, Any
 
 from scapy.config import conf
 from scapy.packet import Packet, Packet_metaclass
@@ -182,7 +182,7 @@ class RowFormatter(object):
         :return: Value of field
         """
         repr_val = p.get_field(name).i2repr(p, p.getfieldval(name))
-        return repr_val
+        return cast(str, repr_val)
 
     @staticmethod
     def text_to_repr(p, name):

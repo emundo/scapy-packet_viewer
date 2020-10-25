@@ -1,4 +1,4 @@
-from typing import List
+from typing import cast, List
 
 import numpy as np
 
@@ -24,7 +24,7 @@ def count_bit_flips(bodies: List[bytes], size: int) -> List[int]:
     for bit in np.arange(size):
         bits = (bodies_np >> bit) & 1
         tav[bit] = np.sum(bits[1:] ^ bits[:-1])
-    return tav.tolist()
+    return cast(List[int], tav.tolist())
 
 
 def calculate_bit_flip_correlation(bodies: List[bytes], size: int) -> List[float]:
@@ -64,4 +64,4 @@ def calculate_bit_flip_correlation(bodies: List[bytes], size: int) -> List[float
     c_t = np.array([ np.convolve(b_t[row], v_t[row]) for row in np.arange(size) ])
     bcot = np.array([ np.corrcoef(c_t[row], c_t[row + 1])[1][0] for row in np.arange(size - 1) ])
 
-    return bcot.astype(np.float64).tolist()
+    return cast(List[float], bcot.astype(np.float64).tolist())

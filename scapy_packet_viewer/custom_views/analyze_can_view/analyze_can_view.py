@@ -8,7 +8,7 @@ import re
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import cast, Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import cantools
 from cantools.database.can import Database, Message, Signal
@@ -53,7 +53,7 @@ class DecimalEdit(urwid.Edit):
         caption: str = "",
         initial: Optional[Decimal] = None,
         default: Optional[Decimal] = None,
-        *args, **kwargs
+        *args: Any, **kwargs: Any
     ) -> None:
         cls = self.__class__
         urwid.register_signal(cls, cls.urwid_signals)
@@ -69,7 +69,7 @@ class DecimalEdit(urwid.Edit):
         old_edit_text = self.edit_text
         old_edit_pos = self.edit_pos
 
-        unhandled = super().keypress(size, key)
+        unhandled: Optional[str] = super().keypress(size, key)
         if unhandled is None:
             # Check whether the text (still) parses as a decimal after applying the keypress and restore the
             # previous text if it does not.
@@ -124,7 +124,7 @@ class YAxisContainer(urwid.Columns):
         ], dividechars=1)
 
     @property
-    def width(self):
+    def width(self) -> int:
         return self._width
 
 
@@ -216,7 +216,7 @@ class SignalValueGraph(BarGraphContainer):
             0  # In case neither scale nor offset have any decimal places
         )
 
-        def label(y):
+        def label(y: int) -> str:
             # Give one extra digit of precision
             return "{:.{precision}f}".format(y, precision=(minimum_label_precision + 1))
 
@@ -297,15 +297,15 @@ class SignalValueGraph(BarGraphContainer):
         offset = 0
         offset_change = 32
 
-        def update():
-            if positive_graph is not None and positive_graph_data is not None:
+        def update() -> None:
+            if positive_graph is not None and positive_graph_data is not None and positive_scale is not None:
                 positive_graph.set_data(
                     positive_graph_data[offset:],
                     positive_range,
                     [ y - positive_offset for y in positive_scale ]
                 )
 
-            if negative_graph is not None and negative_graph_data is not None:
+            if negative_graph is not None and negative_graph_data is not None and negative_scale is not None:
                 negative_graph.set_data(
                     negative_graph_data[offset:],
                     negative_range,
@@ -314,13 +314,13 @@ class SignalValueGraph(BarGraphContainer):
 
             xaxis.offset = offset
 
-        def scroll_left(_):
+        def scroll_left(_: Any) -> None:
             nonlocal offset
 
             offset = max(offset - offset_change, 0)
             update()
 
-        def scroll_right(_):
+        def scroll_right(_: Any) -> None:
             nonlocal offset
 
             offset = min(offset + offset_change, len(data) - 1)
@@ -370,11 +370,16 @@ class XAxis(urwid.Pile):
             ('pack', urwid.Text(label, align='center'))
         ])
 
-    def render(self, size, focus):
+    def render(self, size: Union[Tuple[()], Tuple[int], Tuple[int, int]], focus: bool) -> urwid.Canvas:
         # Hook into the render method and fill pointers/labels dynamically based on the size passed here.
 
+        if len(size) == 0:
+            raise ValueError("The size tuple must contain at least the available number of columns.")
+
+        columns = cast(Union[Tuple[int], Tuple[int, int]], size)[0]
+
         # calculate_bar_widths doesn't utilize the data at all, it only uses the number of bars
-        bar_widths = self._graph.calculate_bar_widths((size[0], self.height), [ None ] * self._num_bars)
+        bar_widths = self._graph.calculate_bar_widths((columns, self.height), [ None ] * self._num_bars)
 
         # Get the number of bars that will be displayed by the bar chart and the overall number of columns
         # that will be filled by those bars. Calculating those number this way is required, as configuration
@@ -461,15 +466,15 @@ class XAxis(urwid.Pile):
         return super().render(size, focus)
 
     @property
-    def height(self):
+    def height(self) -> int:
         return 3
 
     @property
-    def offset(self):
+    def offset(self) -> int:
         return self._offset
 
     @offset.setter
-    def offset(self, offset: int):
+    def offset(self, offset: int) -> None:
         self._offset = offset
         self._invalidate()
 
@@ -490,7 +495,7 @@ class SimpleBarGraph(BarGraphContainer):
         num_x_labels: int = 4,
         yprecision: int = 2
     ) -> None:
-        def label(y):
+        def label(y: float) -> str:
             return "{:.{precision}f}".format(y, precision=yprecision)
 
         yscale = [ ymax * 0.0, ymax * 0.2, ymax * 0.4, ymax * 0.6, ymax * 0.8, ymax * 1.0 ]
@@ -757,6 +762,8 @@ class SignalTable(urwid.ListBox):
 
     TABLE_WIDTH = SignalTableRow.TABLE_ROW_WIDTH
 
+    focus: Optional[SignalTableRow]
+
     def __init__(self, message: Optional[Message] = None, focused_packet: Optional[Packet] = None) -> None:
         cls = self.__class__
         urwid.register_signal(cls, cls.urwid_signals)
@@ -830,7 +837,7 @@ class GraphTab(Enum):
     BitFlips = auto()
     BitFlipCorrelation = auto()
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self is GraphTab.DataOverTime:
             return "Data Over Time"
         if self is GraphTab.BitFlips:
@@ -906,7 +913,7 @@ class AnalyzeCANView(DetailsView):
         urwid.connect_signal(self._graph_tabs, 'selection_changed', self._update_views)
 
         # Callback for the "Rerun Analysis" button
-        def rerun_analysis(_):
+        def rerun_analysis(_: Any) -> None:
             if not self._analysis_running:
                 self._start_analysis()
                 self._update_views()
@@ -1002,7 +1009,7 @@ class AnalyzeCANView(DetailsView):
         # blockingly waits for the process to terminate, followed by reading the result from the queue and
         # updating the UI.
 
-        result_queue: Queue = Queue()
+        result_queue: Queue[Union[Success, Error]] = Queue()
 
         self._process = Process(target=self._run_analysis, args=(data, result_queue))
         self._process.start()
@@ -1021,7 +1028,7 @@ class AnalyzeCANView(DetailsView):
             self._process.join()  # Not sure if redundant
 
     @staticmethod
-    def _run_analysis(data: Data, result_queue: Queue) -> None:
+    def _run_analysis(data: Data, result_queue: Queue[Union[Success, Error]]) -> None:
         # WARNING: This runs in a different process!
         try:
             identifier = data.focused_packet.identifier
@@ -1061,7 +1068,7 @@ class AnalyzeCANView(DetailsView):
         result_queue.close()
         result_queue.join_thread()
 
-    def _wait_for_analysis(self, result_queue: Queue, data: Data) -> None:
+    def _wait_for_analysis(self, result_queue: Queue[Union[Success, Error]], data: Data) -> None:
         # WARNING: This runs in a different thread!
 
         process = self._process
