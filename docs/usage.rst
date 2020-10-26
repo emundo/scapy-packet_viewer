@@ -107,7 +107,7 @@ The views are independent from the Packet Viewer. They communicate only over int
 So a plugin structure is used.
 
 In `DetailsView` is the interface defined. It also offers the necessary structure to create a new view.
-`ShowView` is an example of an already implemented view.
+`EditView` is an example of an already implemented view.
 
 The `views` argument takes the views which should be accessible in the viewer.
-If none specified, it only adds the `ShowView`.
+If none specified, it only adds the `EditView`.
