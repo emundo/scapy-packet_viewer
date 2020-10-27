@@ -738,7 +738,7 @@ class SignalTableRow(urwid.Columns):
         minimum = self._signal_minimum_edit.value
         maximum = self._signal_maximum_edit.value
 
-        # Only update the signal's bounds if the minimum is smaller than the maximum (or one of both is not
+        # Only update the signal's bounds if the minimum is smaller than the maximum (or one or both is not
         # defined).
         if minimum is None or maximum is None or minimum < maximum:
             self._signal.decimal.minimum = minimum
