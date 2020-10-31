@@ -282,7 +282,11 @@ class XAxis(urwid.Pile):
             ('pack', urwid.Text(label, align='center'))
         ])
 
-    def render(self, size: Union[Tuple[()], Tuple[int], Tuple[int, int]], focus: bool) -> urwid.Canvas:
+    def render(
+        self,
+        size: Union[Tuple[()], Tuple[int], Tuple[int, int]],
+        focus: bool = False
+    ) -> urwid.Canvas:
         # Hook into the render method and fill pointers/labels dynamically based on the size passed here.
 
         if len(size) == 0:
@@ -311,7 +315,7 @@ class XAxis(urwid.Pile):
         # If fewer bars are available than the number of requested labels, drop those overflowing labels.
         # Also if zero bars are available, the code above will add the index -1 to the list, which is removed
         # here.
-        labeled_bars = sorted(filter(lambda x: x >= 0 and x < num_bars, set(labeled_bars)))
+        labeled_bars = sorted(filter(lambda x: 0 <= x < num_bars, set(labeled_bars)))
 
         # Fill the pointer row
         used_width = 0

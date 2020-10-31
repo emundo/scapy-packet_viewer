@@ -234,7 +234,7 @@ class AnalyzeCANView(DetailsView):
             )
 
             result_queue.put(Success(value=analysis_result))
-        except BaseException as e:
+        except BaseException as e:  # pylint: disable=broad-except
             result_queue.put(Error(reason=e))
 
         result_queue.close()
@@ -314,7 +314,11 @@ class AnalyzeCANView(DetailsView):
                 cantools.database.dump_file(Database(messages=[ message ]), save_path, database_format='dbc')
 
                 self._emit('notification', "File written.")
-            except BaseException as e:
+            except OSError as e:
+                self._emit('notification', "Saving failed: {}".format(e))
+            except Exception as e:  # pylint: disable=broad-except
+                # Sadly there is no documentation about the exceptions that can be raised by
+                # cantools.database.dump_file, thus catching `Exception` is the only option.
                 self._emit('notification', "Saving failed: {}".format(e))
 
     def _update_views(self) -> None:

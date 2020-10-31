@@ -13,7 +13,7 @@ class RowFormatter(object):
     Helper class for row formatting of Packet fields
     """
     def __init__(self, columns=None, basecls=None):
-        # type: (Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass]) -> None  # noqa: E501
+        # type: (Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass]) -> None # noqa: E501 # pylint: disable=line-too-long
         """
         Initialize RowFormatter
         :param columns: List of column description tuples for
@@ -94,7 +94,7 @@ class RowFormatter(object):
 
         config_columns = self.get_config_columns()
 
-        if config_columns is not None and len(config_columns):
+        if config_columns is not None and len(config_columns) > 0:
             return self.get_default_columns() + config_columns
 
         return self.get_default_columns() + self.fields_to_columns() + \
@@ -123,7 +123,7 @@ class RowFormatter(object):
             return []
         try:
             config_dict = conf.contribs["packet_viewer_columns"]
-            value = config_dict.get(self.basecls.__name__, [])  # type: List[Tuple[str, int, Callable[[Packet], str]]]  # noqa: E501
+            value = config_dict.get(self.basecls.__name__, [])  # type: List[Tuple[str, int, Callable[[Packet], str]]] # noqa: E501 # pylint: disable=line-too-long
             return value
         except KeyError:
             return []
@@ -147,17 +147,17 @@ class RowFormatter(object):
             # bytes_to_repr removes it
             # We use repr() over str() because otherwise byte values
             # like 0x0a ('\n') would change the layout
-            f_name = str(field_desc.name)
+            field_name = str(field_desc.name)
             if isinstance(dummy_field_val, bytes):
-                def callback(p, f=f_name):
+                def callback(p, field=field_name):
                     # type: (Packet, str) -> str
-                    return self.text_to_repr(p, f)
+                    return self.text_to_repr(p, field)
             else:
-                def callback(p, f=f_name):
+                def callback(p, field=field_name):
                     # type: (Packet, str) -> str
-                    return self.field_to_repr(p, f)
+                    return self.field_to_repr(p, field)
 
-            columns.append((f_name, width, callback))
+            columns.append((field_name, width, callback))
         return columns
 
     def relative_time(self, packet):

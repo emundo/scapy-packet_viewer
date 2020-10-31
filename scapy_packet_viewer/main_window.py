@@ -10,6 +10,7 @@ from scapy.packet import Packet
 from scapy.plist import PacketList
 from scapy.sendrecv import AsyncSniffer
 from scapy.supersocket import SuperSocket
+from six import PY2, PY3
 from urwid import Frame, Pile, AttrMap, Text, ExitMainLoop, connect_signal, \
     Widget
 from urwid.version import VERSION as URWID_VERSION
@@ -88,9 +89,9 @@ class MainWindow(Frame):
         for i, view_cls in enumerate(views):
             view = view_cls()
 
-            def show_view(v=view):
+            def show_view(view=view):
                 # type: (DetailsView) -> None
-                self.show_view(v)
+                self.show_view(view)
 
             action = Action([view.action_name.capitalize(),
                              view.action_name.upper(),
@@ -151,7 +152,7 @@ class MainWindow(Frame):
 
     def __init__(self, source, row_formatter, views, globals_dict,
                  **kwargs_for_sniff):
-        # type: (Union[SuperSocket, Iterable[Packet]], RowFormatter, List[Type[DetailsView]], Optional[Dict[Any, Any]], Any) -> None  # noqa: E501
+        # type: (Union[SuperSocket, Iterable[Packet]], RowFormatter, List[Type[DetailsView]], Optional[Dict[Any, Any]], Any) -> None # noqa: E501 # pylint: disable=line-too-long
 
         self.packet_view = PacketListView(row_formatter)
         connect_signal(
@@ -178,7 +179,6 @@ class MainWindow(Frame):
                        lambda _: self.actions[self.CRAFT_SEND_KEY].execute())
         self._setup_source(kwargs_for_sniff)
 
-        from six import PY2
         wrap = "clip" if PY2 and URWID_VERSION <= (2, 1, 1) else "ellipsis"
         super(MainWindow, self).__init__(
             header=AttrMap(Text(u"    " + row_formatter.get_header_string(),
@@ -251,7 +251,6 @@ class MainWindow(Frame):
         # Use empty dictionary if builtins have been overwritten
         builtin = getattr(globals_dict["__builtins__"], "__dict__", {})
 
-        from six import PY3
         for node in gen:
             # Set parent to use it again later
             for child in ast.iter_child_nodes(node):
@@ -274,12 +273,12 @@ class MainWindow(Frame):
                 # Scapy might add classes to the built-ins
                 # That's why we need to check in the general global dictionary
                 # and the built-ins.
-                t = globals_dict.get(node.id) or builtin.get(node.id)
+                candidate = globals_dict.get(node.id) or builtin.get(node.id)
 
                 # Must be of type Packet_metaclass
-                if not isinstance(t, Packet_metaclass):
+                if not isinstance(candidate, Packet_metaclass):
                     return False, []
-                required_classes.append(t)
+                required_classes.append(candidate)
                 continue
 
             return False, []
@@ -306,7 +305,7 @@ class MainWindow(Frame):
             if valid:
                 # Create own minimized global symbol table
                 # to improve security
-                g = {c.__name__: c for c in required_classes}
+                global_scope = {c.__name__: c for c in required_classes}
 
                 # From https://docs.python.org/3/library/functions.html#eval
                 # If the globals dictionary is present and does not contain
@@ -315,8 +314,8 @@ class MainWindow(Frame):
                 # under that key before expression is parsed.
                 #
                 # We don't want any builtins to be executed.
-                g["__builtins__"] = {"len": len}
-                pkt = eval(text, g)
+                global_scope["__builtins__"] = {"len": len}
+                pkt = eval(text, global_scope)  # pylint: disable=eval-used
                 self.send_packet(pkt)
             else:
                 self._emit("info_popup", "Only simple values allowed.")
@@ -354,18 +353,18 @@ class MainWindow(Frame):
         new_filter = new_filter.strip()
         if new_filter == "":
             # deselect all packets
-            for cb in self.packet_view.body:
-                cb.base_widget.state = False
+            for checkbox in self.packet_view.body:
+                checkbox.base_widget.state = False
             return
 
         try:
             compiled_code = compile(new_filter, filename="", mode="eval")
-            for cb in self.packet_view.body:
-                p = cb.base_widget.tag
+            for checkbox in self.packet_view.body:
+                p = checkbox.base_widget.tag
                 # See text_to_packet() for some explanations
-                g = {"p": p, "__builtins__": {"len": len}}
-                matches = bool(eval(compiled_code, g))
-                cb.base_widget.state = matches
+                global_scope = {"p": p, "__builtins__": {"len": len}}
+                matches = bool(eval(compiled_code, global_scope))  # pylint: disable=eval-used
+                checkbox.base_widget.state = matches
         except NameError:
             self._emit(
                 "info_popup",

@@ -1,9 +1,8 @@
-import pytest
+# pylint: disable=protected-access, invalid-name
+
 from collections import OrderedDict
 
 from scapy_packet_viewer.button_bar import ButtonBar, Action
-
-global_var = 0
 
 
 # TODO: New category
@@ -11,19 +10,18 @@ def test_Basicfunctiontest1():
     """
     Basic function test 1
     """
-    global global_var
     global_var = 0
 
     def fun1():
-        global global_var
+        nonlocal global_var
         global_var = 1
 
     def fun2():
-        global global_var
+        nonlocal global_var
         global_var = 2
 
     def fun3():
-        global global_var
+        nonlocal global_var
         global_var = 3
 
     a = Action(["fun1", "fun2", "fun3"], [fun1, fun2, fun3])
@@ -99,19 +97,18 @@ def test_Basicfunctiontest2():
     """
     Basic function test 2
     """
-    global global_var
     global_var = 0
 
     def fun1():
-        global global_var
+        nonlocal global_var
         global_var = 1
 
     def fun2():
-        global global_var
+        nonlocal global_var
         global_var = 2
 
     def fun3():
-        global global_var
+        nonlocal global_var
         global_var = 3
 
     a = Action(["fun1", "fun2", "fun3"], [fun1, fun2, fun3])
@@ -147,19 +144,18 @@ def test_Basicfunctiontest3():
     """
     Basic function test 3
     """
-    global global_var
     global_var = 0
 
     def fun1():
-        global global_var
+        nonlocal global_var
         global_var = 1
 
     def fun2():
-        global global_var
+        nonlocal global_var
         global_var = 2
 
     def fun3():
-        global global_var
+        nonlocal global_var
         global_var = 3
 
     a = Action(["fun1", "fun2", "fun3"], [fun1, fun2, fun3])

@@ -13,10 +13,11 @@ class DecimalEdit(urwid.Edit):
 
     def __init__(
         self,
+        *args: Any,
         caption: str = "",
         initial: Optional[Decimal] = None,
         default: Optional[Decimal] = None,
-        *args: Any, **kwargs: Any
+        **kwargs: Any
     ) -> None:
         cls = self.__class__
         urwid.register_signal(cls, cls.urwid_signals)

@@ -12,7 +12,7 @@ from scapy.supersocket import SuperSocket
 from scapy.themes import BlackAndWhite
 from scapy.plist import PacketList
 
-from . import column_configuration  # noqa: F401
+from . import column_configuration  # noqa: F401 # pylint: disable=unused-import
 from .details_view import DetailsView
 from .edit_view import EditView
 from .main_window import MainWindow
@@ -77,7 +77,7 @@ class Viewer(object):
 
     def __init__(self, source, columns, basecls, views,
                  globals_dict, **kwargs_for_sniff):
-        # type: (Union[SuperSocket, Iterable[Packet]], Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass], Optional[List[Type[DetailsView]]], Optional[Dict[Any, Any]], Any) -> None  # noqa: E501
+        # type: (Union[SuperSocket, Iterable[Packet]], Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass], Optional[List[Type[DetailsView]]], Optional[Dict[Any, Any]], Any) -> None # noqa: E501 # pylint: disable=line-too-long
         """
         Initialization of a Viewer class. Customization and basecls filtering
         can be chosen through the arguments
@@ -135,7 +135,7 @@ class Viewer(object):
 
         connect_signal(
             self.main_window, "msg_to_main_thread",
-            lambda _, *args: self.msg_pipe.send(args))  # type: ignore[union-attr]  # noqa: E501
+            lambda _, *args: self.msg_pipe.send(args))  # type: ignore[union-attr] # noqa: E501 # pylint: disable=line-too-long
 
     def run(self):
         # type: () -> Tuple[PacketList, PacketList]
@@ -144,7 +144,7 @@ class Viewer(object):
         :return: Tuple of two PacketLists. First list contains all selected
                  Packets. Second list contains all Packets
         """
-        cf = conf.color_theme
+        color_theme = conf.color_theme
         conf.color_theme = BlackAndWhite()
 
         try:
@@ -162,13 +162,13 @@ class Viewer(object):
             self._initialize_warning()
             self._connect_signals()
             self.loop.run()
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             # We don't want the user session to break if the viewer crashes.
             # So catch everything, but at least print the exception
             print_exc()
             return PacketList(), PacketList()
         finally:
-            conf.color_theme = cf
+            conf.color_theme = color_theme
             if self.main_window and self.main_window.sniffer \
                     and self.main_window.sniffer.running:
                 self.main_window.sniffer.stop()
@@ -214,7 +214,7 @@ class Viewer(object):
 
 def viewer(source, columns=None, basecls=None, views=None, globals_dict=None,
            **kwargs_for_sniff):
-    # type: (Union[SuperSocket, Iterable[Packet]], Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass], Optional[List[Type[DetailsView]]], Optional[Dict[Any, Any]], Any) -> Tuple[PacketList, PacketList]  # noqa: E501
+    # type: (Union[SuperSocket, Iterable[Packet]], Optional[List[Tuple[str, int, Callable[[Packet], str]]]], Optional[Packet_metaclass], Optional[List[Type[DetailsView]]], Optional[Dict[Any, Any]], Any) -> Tuple[PacketList, PacketList] # noqa: E501 # pylint: disable=line-too-long
     """
     Convenience function for Viewer
     :param source: Socket or list of Packets
@@ -232,6 +232,5 @@ def viewer(source, columns=None, basecls=None, views=None, globals_dict=None,
     :return: Tuple of two PacketLists. First list contains all selected
              Packets. Second list contains all Packets
     """
-    v = Viewer(source, columns, basecls, views, globals_dict,
-               **kwargs_for_sniff)
-    return v.run()
+    return Viewer(source, columns, basecls, views, globals_dict,
+                  **kwargs_for_sniff).run()

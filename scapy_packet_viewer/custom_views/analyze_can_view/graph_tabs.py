@@ -9,7 +9,8 @@ class GraphTab(Enum):
     BitFlips = auto()
     BitFlipCorrelation = auto()
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # pylint: disable=inconsistent-return-statements
+        # Sadly pylint does not seem to understand that all possible cases are covered below.
         if self is GraphTab.DataOverTime:
             return "Data Over Time"
         if self is GraphTab.BitFlips:

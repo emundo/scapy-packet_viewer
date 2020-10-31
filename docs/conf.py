@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, wrong-import-position
+
 # Configuration file for the Sphinx documentation builder.
 #
 # This file does only contain a selection of the most common options. For a full list see
@@ -16,14 +18,14 @@ import sys
 this_file_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(this_file_path, "..", "scapy_packet_viewer"))
 
-from version import __version__ as __version  # noQA: E402
-from project import project as __project  # noQA: E402
+from version import __version__ as __version  # noQA: E402 # pylint: disable=no-name-in-module
+from project import project as __project  # noQA: E402 # pylint: disable=no-name-in-module, import-error
 
 # -- Project information -----------------------------------------------------------------
 
 project = __project["name"]
 author = __project["author"]
-copyright = "{}, {}".format(__project["year"], __project["author"])
+copyright = "{}, {}".format(__project["year"], __project["author"])  # pylint: disable=redefined-builtin
 
 # The short X.Y version
 version = __version["short"]
@@ -65,7 +67,7 @@ html_static_path = [ "_static" ]
 private_name_regex = re.compile(r"^_\w+__")
 
 
-def autodoc_skip_member_handler(app, what, name, obj, skip, options):
+def autodoc_skip_member_handler(_app, _what, name, _obj, _skip, _options):
     """
     A very simple handler for the autodoc-skip-member event that skips everything
     "private", aka starting with double underscores. Everything else is left untouched.

@@ -1,9 +1,10 @@
-import pytest
+# pylint: disable=protected-access, invalid-name
 
-from scapy_packet_viewer.main_window import MainWindow
 from scapy.layers.can import CAN
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
+
+from scapy_packet_viewer.main_window import MainWindow
 
 is_valid_packet = MainWindow.is_valid_packet
 globals_dict = globals()

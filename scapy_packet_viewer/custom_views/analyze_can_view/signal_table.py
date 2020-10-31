@@ -183,13 +183,13 @@ class SignalTableRow(urwid.Columns):
         else:
             widget.edit_text = old_text
 
-    def _update_signal_signed(self, widget: urwid.CheckBox, old_checked: bool) -> None:
+    def _update_signal_signed(self, widget: urwid.CheckBox, _old_checked: bool) -> None:
         checked = widget.get_state()
         widget.set_label("yes" if checked else "no")
         self._signal.is_signed = checked
         self._signal_updated()
 
-    def _update_signal_float(self, widget: urwid.CheckBox, old_checked: bool) -> None:
+    def _update_signal_float(self, widget: urwid.CheckBox, _old_checked: bool) -> None:
         # TODO: Float signals are kind of a mystery. What about minimum/maximum/scale/offset/signedness etc.
         # when dealing with float signals?
         checked = widget.get_state()
@@ -203,7 +203,7 @@ class SignalTableRow(urwid.Columns):
             self._signal.is_float = checked
             self._signal_updated()
 
-    def _update_signal_offset(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
+    def _update_signal_offset(self, _widget: DecimalEdit, value: Optional[Decimal]) -> None:
         if value is None:
             # This can never happen, it is just here to satisfy the type checker.
             value = Decimal(1)
@@ -212,7 +212,7 @@ class SignalTableRow(urwid.Columns):
         self._signal.offset = float(value)
         self._signal_updated()
 
-    def _update_signal_scale(self, widget: DecimalEdit, value: Optional[Decimal]) -> None:
+    def _update_signal_scale(self, _widget: DecimalEdit, value: Optional[Decimal]) -> None:
         if value is None:
             # This can never happen, it is just here to satisfy the type checker.
             value = Decimal(0)

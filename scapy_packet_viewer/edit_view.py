@@ -128,7 +128,7 @@ class EditView(DetailsView):
             clone.setfieldval(field_name, value)
             clone.build()
             return True
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             return False
 
     def _update_show(self, lines):
@@ -169,6 +169,7 @@ class EditView(DetailsView):
                 # Or it's the first Packet to be shown
                 listbox.body.append(item)
 
+    # pylint: disable=invalid-name, line-too-long
     # noinspection PyProtectedMember,DuplicatedCode,SpellCheckingInspection
     def _show(self, pkt, lvl="", label_lvl=""):  # noqa: E501
         # type: (Packet, str, str) -> List[Union[Text, ExtendedEdit]]

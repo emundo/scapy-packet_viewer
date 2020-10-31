@@ -1,10 +1,11 @@
-import pytest
+# pylint: disable=protected-access, invalid-name
 
 import six
 
-from scapy_packet_viewer.row_formatter import RowFormatter
 from scapy.packet import Raw
 from scapy.config import conf
+
+from scapy_packet_viewer.row_formatter import RowFormatter
 
 
 # TODO: New category

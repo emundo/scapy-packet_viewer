@@ -57,7 +57,8 @@ def calculate_bit_flip_correlation(bodies: List[bytes], size: int) -> List[float
     # Note: this code works with temporary Python list, which are potential bottlenecks, but the
     # lists only have one entry per bit position (minus one), so the worst case is 63 entries per
     # list, which should not be an issue.
-    b = bodies_np[1:] ^ bodies_np[:-1]
+    # Note: Variable names are chosen as per the paper that defines this algorithm.
+    b = bodies_np[1:] ^ bodies_np[:-1]  # pylint: disable=invalid-name
 
     b_t = np.array([ ((b >> col) & 1) for col in np.arange(size) ], dtype=np.uint8)
     v_t = np.ones((size, convolution_length), dtype=np.uint8)

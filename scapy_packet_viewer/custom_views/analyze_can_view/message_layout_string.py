@@ -22,7 +22,7 @@ def get_signal_letter_mapping(message: Message) -> Dict[Signal, str]:
 
     # Populate the mappings
     next_signal_letter_ord = ord('a')
-    for signal in message._signals:
+    for signal in message.signals:
         next_signal_letter = chr(next_signal_letter_ord)
         signal_letter_mapping[signal] = next_signal_letter
         next_signal_letter_ord += 1
@@ -60,7 +60,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
     def format_big() -> List[str]:
         signals = []
 
-        for signal in message._signals:
+        for signal in message.signals:
             if signal.byte_order != 'big_endian':
                 continue
 
@@ -78,7 +78,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
     def format_little() -> List[str]:
         signals = []
 
-        for signal in message._signals:
+        for signal in message.signals:
             if signal.byte_order != 'little_endian':
                 continue
 
@@ -135,7 +135,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
         # Split the signals union line into byte lines, 8 bits per line.
         byte_lines = [ signals_union[i:(i + 24)] for i in range(0, len(signals_union), 24) ]
 
-        unused_byte_lines = (message._length - len(byte_lines))
+        unused_byte_lines = (message.length - len(byte_lines))
         if unused_byte_lines > 0:
             byte_lines += unused_byte_lines * [24 * ' ']
 
@@ -151,7 +151,7 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
 
                 if i == 0:
                     line += '|'
-                elif byte_triple[0] in (' <>' + all_signal_letters):
+                elif byte_triple[0] in ' <>' + all_signal_letters:
                     # Detecting signal letters instead of 'x' ^
                     line += '|'
                 elif byte_triple[0] == 'X':
@@ -177,12 +177,9 @@ def message_layout_string(message: Message, highlight: Optional[str] = None) -> 
         # Add byte numbering.
         number_width = len(str(len(lines))) + 4
         number_fmt = '{{:{}d}} {{}}'.format(number_width - 1)
-        a = []
+        lines = [ number_fmt.format(number, line) for number, line in enumerate(lines) ]
 
-        for number, line in enumerate(lines):
-            a.append(number_fmt.format(number, line))
-
-        return a, len(lines), number_width
+        return lines, len(lines), number_width
 
     def add_header_lines(lines: List[str], number_width: int) -> List[str]:
         # Modified to use less rows by moving the "Bit" label next to the numbers.
