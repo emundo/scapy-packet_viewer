@@ -76,7 +76,7 @@ Note that this script might require root privileges.
 
     from scapy.arch import L2Socket
     from scapy.layers.l2 import Ether
-    from scapy.modules.packet_viewer.viewer import viewer
+    from scapy_packet_viewer import viewer
 
     socket = L2Socket("eth0")
     selected, _all = viewer(socket, basecls=Ether, globals_dict=globals())
