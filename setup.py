@@ -66,6 +66,7 @@ setup(
         "urwid>=2.1.2,<3"
     ],
     python_requires = ">=3.6",
+    include_package_data = True,
     zip_safe = False,
     classifiers = classifiers,
     **project

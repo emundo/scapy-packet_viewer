@@ -8,7 +8,7 @@ import re
 import struct
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import cast, Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import cast, Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, TYPE_CHECKING, Union
 
 import cantools
 from cantools.database.can import Database, Message, Signal
@@ -39,6 +39,18 @@ class Error(NamedTuple):
 class AnalysisResult(NamedTuple):
     packets: List[Packet]
     result: Union[Success, Error]
+
+
+# The type Queue is generic in the stubs but not at runtime.
+# https://mypy.readthedocs.io/en/stable/common_issues.html#using-classes-that-are-generic-in-stubs-but-not-at-runtime
+if TYPE_CHECKING:
+    ResultQueueBase = Queue[Union[Success, Error]]
+else:
+    ResultQueueBase = Queue
+
+
+class ResultQueue(ResultQueueBase):
+    pass
 
 
 class DecimalEdit(urwid.Edit):
@@ -1009,7 +1021,7 @@ class AnalyzeCANView(DetailsView):
         # blockingly waits for the process to terminate, followed by reading the result from the queue and
         # updating the UI.
 
-        result_queue: Queue[Union[Success, Error]] = Queue()
+        result_queue: ResultQueue = cast(ResultQueue, Queue())
 
         self._process = Process(target=self._run_analysis, args=(data, result_queue))
         self._process.start()
@@ -1028,7 +1040,7 @@ class AnalyzeCANView(DetailsView):
             self._process.join()  # Not sure if redundant
 
     @staticmethod
-    def _run_analysis(data: Data, result_queue: Queue[Union[Success, Error]]) -> None:
+    def _run_analysis(data: Data, result_queue: ResultQueue) -> None:
         # WARNING: This runs in a different process!
         try:
             identifier = data.focused_packet.identifier
@@ -1068,7 +1080,7 @@ class AnalyzeCANView(DetailsView):
         result_queue.close()
         result_queue.join_thread()
 
-    def _wait_for_analysis(self, result_queue: Queue[Union[Success, Error]], data: Data) -> None:
+    def _wait_for_analysis(self, result_queue: ResultQueue, data: Data) -> None:
         # WARNING: This runs in a different thread!
 
         process = self._process
