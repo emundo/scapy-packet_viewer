@@ -16,13 +16,13 @@ import sys
 this_file_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(this_file_path, "..", "scapy_packet_viewer"))
 
-from version import __version__ as __version
-from project import project     as __project
+from version import __version__ as __version  # noQA: E402
+from project import project as __project  # noQA: E402
 
 # -- Project information -----------------------------------------------------------------
 
-project   = __project["name"]
-author    = __project["author"]
+project = __project["name"]
+author = __project["author"]
 copyright = "{}, {}".format(__project["year"], __project["author"])
 
 # The short X.Y version
@@ -63,6 +63,8 @@ html_static_path = [ "_static" ]
 # -- Autodoc Member Skipping -------------------------------------------------------------
 
 private_name_regex = re.compile(r"^_\w+__")
+
+
 def autodoc_skip_member_handler(app, what, name, obj, skip, options):
     """
     A very simple handler for the autodoc-skip-member event that skips everything
@@ -73,6 +75,7 @@ def autodoc_skip_member_handler(app, what, name, obj, skip, options):
         return True
 
     return None
+
 
 def setup(app):
     app.connect("autodoc-skip-member", autodoc_skip_member_handler)

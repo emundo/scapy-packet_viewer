@@ -1,6 +1,4 @@
 import pytest
-from scapy.all import *
-
 
 from scapy_packet_viewer.main_window import MainWindow
 from scapy.layers.can import CAN
@@ -8,12 +6,13 @@ from scapy.layers.l2 import Ether
 from scapy.packet import Raw
 
 is_valid_packet = MainWindow.is_valid_packet
-globals_dict=globals()
+globals_dict = globals()
 
 
+# TODO: New category
 def test_listwithdifferentvaluetypesbutallvalid1():
     """
-    list with different value types but all valid #1
+    list with different value types but all valid 1
     """
     res, classes = is_valid_packet("CAN(identifier=0x123, data=[1, 2, 3, 'test'])", globals_dict)
     assert res is True
@@ -22,7 +21,7 @@ def test_listwithdifferentvaluetypesbutallvalid1():
 
 def test_listwithdifferentvaluetypesbutallvalid2():
     """
-    list with different value types but all valid #2
+    list with different value types but all valid 2
     """
     res, classes = is_valid_packet("CAN(identifier=0x123, data=[1, 2, 3, b'\x01\x02'])", globals_dict)
     assert res is True
@@ -45,18 +44,25 @@ def test_Connectinglayers():
     """
     Connecting layers
     """
-    res, classes = is_valid_packet("CAN(identifier=0x123, data=[1, 2, 3, 5]) / Raw(b'\x42') / Ether()", globals_dict)
+    res, classes = is_valid_packet(
+        "CAN(identifier=0x123, data=[1, 2, 3, 5]) / Raw(b'\x42') / Ether()",
+        globals_dict
+    )
+
     assert res is True
     assert set(classes) <= set([CAN, Raw, Ether])
 
 
-
-
+# TODO: New category
 def test_Secondfunctionviabinaryoperator():
     """
     Second function via binary operator
     """
-    res, classes = is_valid_packet("CAN(identifier=0x123, data=[1, 2, 3, b'\x01\x02']) and print('p')", globals_dict)
+    res, classes = is_valid_packet(
+        "CAN(identifier=0x123, data=[1, 2, 3, b'\x01\x02']) and print('p')",
+        globals_dict
+    )
+
     assert res is False
     assert set(classes) <= set([CAN])
 
@@ -131,7 +137,3 @@ def test_Securityvulnerability():
     res, classes = is_valid_packet("''.__class__.__base__", globals_dict)
     assert res is False
     assert set(classes) == set()
-
-
-
-
