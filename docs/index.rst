@@ -7,9 +7,9 @@ Packet viewer for Scapy
 
 .. toctree::
     :caption: General
-   
-    development
+
     usage
+    development
 
 .. toctree::
     :caption: API Reference

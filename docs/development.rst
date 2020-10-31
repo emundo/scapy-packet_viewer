@@ -1,4 +1,4 @@
-Packet Viewer
+Development
 =============
 
 UI Overview
@@ -6,7 +6,7 @@ UI Overview
 
 .. image:: graphics/packet_viewer_ui_overview.*
 
-Architecture Overview
+Architecture
 ---------------------
 
 .. image:: graphics/packet_viewer_architecture_overview.*
