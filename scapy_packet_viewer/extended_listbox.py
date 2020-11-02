@@ -34,10 +34,10 @@ class ExtendedListBox(ListBox):
 
         if button == scroll_wheel_up:
             self.keypress(size, "up")
-            return
+            return None
         if button == scroll_wheel_down:
             self.keypress(size, "down")
-            return
+            return None
 
         return super(ExtendedListBox, self).mouse_event(
             size, event, button, col, row, focus)

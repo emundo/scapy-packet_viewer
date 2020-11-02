@@ -72,7 +72,7 @@ class ButtonBar(Columns):
                      self._execute_and_change_state(k),
                      user_data=key)
         # We need to access the underlying Columns widget
-        cols = btn._w
+        cols = btn._w  # pylint: disable=protected-access
         # We don't want any dividing chars
         cols.dividechars = 0
         # Set the prefix and make it pack instead of "<" and fixed length
@@ -80,9 +80,9 @@ class ButtonBar(Columns):
         # Remove the ">" behind the actual button text
         del cols.contents[2]
         # len(text) + 1 hides the cursor
-        cols.contents[1][0]._cursor_position = len(btn.label) + 1
+        cols.contents[1][0]._cursor_position = len(btn.label) + 1  # pylint: disable=protected-access
         # Ensure buttons won't gain focus but they are still clickable
-        cols._selectable = False
+        cols._selectable = False  # pylint: disable=protected-access
         return btn
 
 
