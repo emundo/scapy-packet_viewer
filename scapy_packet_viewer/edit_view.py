@@ -192,7 +192,7 @@ class EditView(DetailsView):
         lines = [Text(s)]
 
         for f in pkt.fields_desc:
-            if isinstance(f, ConditionalField) and not f._evalcond(pkt):
+            if isinstance(f, ConditionalField) and not f.cond(pkt):
                 continue
             if isinstance(f, Emph) or f in conf.emph:
                 ncol = ct.emph_field_name

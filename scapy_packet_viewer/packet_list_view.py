@@ -37,15 +37,15 @@ class PacketListView(ExtendedListBox):
         # to customize the underlying widgets
 
         wrap = "clip" if PY2 and URWID_VERSION <= (2, 1, 1) else "ellipsis"
-        gui_packet._label.set_layout("left", wrap)
+        gui_packet._label.set_layout("left", wrap)  # pylint: disable=protected-access
 
         # The cursor of `urwid.SelectableIcon` doesn't take a color scheme.
         # So just hide the cursor.
         # len(text) + 1 hides the cursor
         checked_state = gui_packet.states[True]
         unchecked_state = gui_packet.states[False]
-        checked_state._cursor_position = len(checked_state.text) + 1
-        unchecked_state._cursor_position = len(unchecked_state.text) + 1
+        checked_state._cursor_position = len(checked_state.text) + 1  # pylint: disable=protected-access
+        unchecked_state._cursor_position = len(unchecked_state.text) + 1  # pylint: disable=protected-access
         gui_packet.tag = pkt
         return gui_packet
 
