@@ -1,4 +1,5 @@
-# noQA: E203,E221
+# SPDX-License-Identifier: GPL-2.0-only
+
 project = {
     "name"         : "scapy-packet_viewer",
     "description"  : "Packet viewer for SecDev's Scapy.",

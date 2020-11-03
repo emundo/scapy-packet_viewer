@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from collections import defaultdict
 from itertools import count
 from typing import cast, Callable, Dict, List, Tuple, Optional, Any

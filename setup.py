@@ -1,4 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # pylint: disable=exec-used
+
 import os
 from typing import Dict, List, Union
 

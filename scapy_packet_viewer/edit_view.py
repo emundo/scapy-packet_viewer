@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from ast import literal_eval
 from typing import List, Type, Any, Union, Optional
 

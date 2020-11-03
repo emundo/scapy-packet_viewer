@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from platform import platform
 import re
 from traceback import print_exc

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from typing import List, Tuple, Any
 
 from scapy.packet import Packet

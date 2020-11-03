@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from enum import auto, Enum
 from typing import Any, List
 

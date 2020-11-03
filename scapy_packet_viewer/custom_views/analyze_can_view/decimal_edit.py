@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Tuple
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from typing import Callable, Any
 
 from urwid import Text, AttrMap, Button, LineBox, Overlay, ListBox, MainLoop, \

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from typing import Dict, List, Optional, Tuple
 
 from cantools.database.can import Message, Signal

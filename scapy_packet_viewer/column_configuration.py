@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from typing import List, Tuple, Callable
 
 from scapy.config import conf

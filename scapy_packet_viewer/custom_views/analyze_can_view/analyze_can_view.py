@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
 from multiprocessing import Process, Queue as create_multiprocessing_queue
 from multiprocessing.queues import Queue as MultiprocessingQueue
 import os

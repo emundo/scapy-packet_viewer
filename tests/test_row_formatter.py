@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # pylint: disable=protected-access, invalid-name
 
 import six
