@@ -60,13 +60,17 @@ setup(
     license="GPLv2",
     packages=find_packages(),
     install_requires=[
-        "cantools>=35.3.0,<36",
-        "numpy>=1.19.2,<2",
-        "revdbc>=0.0.1,<0.1",
         "scapy>=2.4.4,<3",
         "six>=1.15.0,<2",
         "urwid>=2.1.2,<3"
     ],
+    extras_require={
+        "full": [
+            "cantools>=35.3.0,<36",
+            "numpy>=1.19.2,<2",
+            "revdbc>=0.0.1,<0.1"
+        ]
+    },
     python_requires=">=3.6",
     include_package_data=True,
     zip_safe=False,
