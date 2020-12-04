@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# pylint: disable=protected-access, invalid-name
+# pylint: disable=protected-access
 
 from collections import OrderedDict
 
 from scapy_packet_viewer.button_bar import ButtonBar, Action
 
+"""
+The button bar contains the actions at the bottom of the program.
+These tests check for its proper behavior for various actions.
+"""
 
-# TODO: New category
-def test_Basicfunctiontest1():
-    """
-    Basic function test 1
-    """
+
+def test_valid_use():
     global_var = 0
 
     def fun1():
@@ -43,10 +44,7 @@ def test_Basicfunctiontest1():
     a.execute()
 
 
-def test_Invalidinittest1():
-    """
-    Invalid init test 1
-    """
+def test_invalid_init_more_names():
     exception_caught = False
 
     def fun1():
@@ -60,10 +58,7 @@ def test_Invalidinittest1():
     assert exception_caught
 
 
-def test_Invalidinittest2():
-    """
-    Invalid init test 2
-    """
+def test_invalid_init_more_functions():
     exception_caught = False
 
     def fun1():
@@ -77,10 +72,7 @@ def test_Invalidinittest2():
     assert exception_caught
 
 
-def test_Invalidinittest3():
-    """
-    Invalid init test 3
-    """
+def test_invalid_init_index_out_of_range():
     exception_caught = False
 
     def fun1():
@@ -94,10 +86,7 @@ def test_Invalidinittest3():
     assert exception_caught
 
 
-def test_Basicfunctiontest2():
-    """
-    Basic function test 2
-    """
+def test_ui_interaction_one_action():
     global_var = 0
 
     def fun1():
@@ -113,7 +102,9 @@ def test_Basicfunctiontest2():
         global_var = 3
 
     a = Action(["fun1", "fun2", "fun3"], [fun1, fun2, fun3])
-    b = ButtonBar({"f1": a})
+    cmds = OrderedDict()
+    cmds["f1"] = a
+    b = ButtonBar(cmds)
 
     assert "fun1" in b.widget_list[0].get_label()
     assert global_var == 0
@@ -141,10 +132,7 @@ def test_Basicfunctiontest2():
     b.keypress(0, "f1")
 
 
-def test_Basicfunctiontest3():
-    """
-    Basic function test 3
-    """
+def test_ui_interaction_two_actions():
     global_var = 0
 
     def fun1():
