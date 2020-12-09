@@ -358,15 +358,23 @@ class MainWindow(Frame):
             for checkbox in self.packet_view.body:
                 checkbox.base_widget.state = False
             return
-
+        
+        attribute_error_count = 0
+        last_exception = None
         try:
             compiled_code = compile(new_filter, filename="", mode="eval")
             for checkbox in self.packet_view.body:
                 p = checkbox.base_widget.tag
                 # See text_to_packet() for some explanations
                 global_scope = {"p": p, "__builtins__": {"len": len}}
-                matches = bool(eval(compiled_code, global_scope))  # pylint: disable=eval-used
-                checkbox.base_widget.state = matches
+                try:
+                    matches = bool(eval(compiled_code, global_scope))  # pylint: disable=eval-used
+                    checkbox.base_widget.state = matches
+                except AttributeError as e:
+                    attribute_error_count += 1
+                    last_exception = e
+            if len(self.packet_view.body) == attribute_error_count:
+                raise last_exception
         except NameError:
             self._emit(
                 "info_popup",
