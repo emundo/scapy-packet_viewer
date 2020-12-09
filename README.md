@@ -2,8 +2,6 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/scapy-packet_viewer.svg)](https://pypi.org/project/scapy-packet_viewer/)
 [![Documentation Status](https://readthedocs.org/projects/scapy-packet_viewer/badge/?version=latest)](https://scapy-packet_viewer.readthedocs.io/en/latest/?badge=latest)
 
-TODO: non-Travis build status
-
 # scapy-packet_viewer #
 
 Packet viewer for SecDev's [Scapy](https://scapy.net/).
