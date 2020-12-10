@@ -373,6 +373,7 @@ class MainWindow(Frame):
                 except AttributeError as e:
                     attribute_error_count += 1
                     last_exception = e
+            # Suppress attribute errors, if they don't apply for all packets in packet_view.body
             if len(self.packet_view.body) == attribute_error_count:
                 raise last_exception
         except NameError:
